@@ -75,7 +75,7 @@ export default function Header() {
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden lg:flex items-center justify-center flex-1 min-w-0 px-4">
+        <nav className="hidden lg:flex items-center justify-center flex-1 min-w-0 px-4 pr-16 relative z-10">
           <div className="flex items-center gap-x-5 xl:gap-x-8">
             {navItems.map((item) => (
               <Link
