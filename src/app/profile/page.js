@@ -27,7 +27,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!user) {
-      router.push('/login?returnUrl=/profile');
+      router.push('/login?redirect=%2Fprofile');
       return;
     }
 
