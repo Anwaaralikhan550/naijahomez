@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Firestore</title>
+</head>
+<body>
+    <h1>Firestore Debug</h1>
+    <button id="debug">Debug Collections</button>
+    <div id="log" style="height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: #f9f9f9; font-family: monospace; font-size: 12px; margin-top: 10px;"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+        import { getFirestore, collection, getDocs, query, limit } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+            authDomain: "nijahomzs-1ead3.firebaseapp.com",
+            projectId: "nijahomzs-1ead3",
+            storageBucket: "nijahomzs-1ead3.firebasestorage.app",
+            messagingSenderId: "495544413710",
+            appId: "1:495544413710:web:32c35206f5dfef2cedd65f"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += '<div>' + message + '</div>';
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        async function debugCollections() {
+            log('🔍 Debugging Firestore collections...');
+            
+            // List of ALL possible collection names to check
+            const collectionNames = [
+                'properties',
+                'property', 
+                'listings',
+                'ads',
+                'posts',
+                'items',
+                'housemate',
+                'housemates',
+                'marketplace',
+                'services',
+                'tradespeople',
+                'noticeboard',
+                'notices',
+                'rentals',
+                'sales',
+                'forRent',
+                'forSale'
+            ];
+            
+            for (const collectionName of collectionNames) {
+                try {
+                    log(`\n📂 Checking collection: "${collectionName}"`);
+                    
+                    const q = query(collection(db, collectionName), limit(3));
+                    const snapshot = await getDocs(q);
+                    
+                    log(`   Found ${snapshot.size} documents`);
+                    
+                    if (snapshot.size > 0) {
+                        snapshot.forEach((doc, index) => {
+                            const data = doc.data();
+                            log(`   📄 Doc ${index + 1}: ${doc.id}`);
+                            log(`      Title: ${data.title || 'No title'}`);
+                            log(`      Type: ${data.type || 'undefined'}`);
+                            log(`      Category: ${data.category || 'undefined'}`);
+                            log(`      PropertyType: ${data.propertyType || 'undefined'}`);
+                            log(`      Rate: ${data.rate || 'undefined'}`);
+                            log(`      ListingType: ${data.listingType || 'undefined'}`);
+                            
+                            // Show all field names
+                            const fields = Object.keys(data).slice(0, 10);
+                            log(`      Fields: ${fields.join(', ')}${Object.keys(data).length > 10 ? '...' : ''}`);
+                        });
+                    }
+                    
+                } catch (error) {
+                    log(`   ❌ Error accessing "${collectionName}": ${error.message}`);
+                }
+            }
+            
+            log('\n🔍 Also checking if we can access other collections...');
+            
+            // Try some other collections that might exist
+            const otherCollections = ['users', 'messages', 'categories', 'hubCommunities'];
+            
+            for (const collectionName of otherCollections) {
+                try {
+                    const q = query(collection(db, collectionName), limit(1));
+                    const snapshot = await getDocs(q);
+                    log(`📂 ${collectionName}: ${snapshot.size} documents`);
+                } catch (error) {
+                    log(`❌ ${collectionName}: ${error.message}`);
+                }
+            }
+            
+            log('\n✅ Debug complete!');
+        }
+
+        document.getElementById('debug').addEventListener('click', debugCollections);
+    </script>
+</body>
+</html>

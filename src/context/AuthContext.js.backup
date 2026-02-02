@@ -1,0 +1,283 @@
+'use client';
+import { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { cleanupLegacyAuth } from '@/utils/auth-cleanup';
+
+const AuthContext = createContext({});
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const isChecking = useRef(false);
+
+  // Check authentication status
+  const checkAuth = useCallback(async (skipLoadingFlag = false) => {
+    // Prevent multiple simultaneous auth checks
+    if (isChecking.current) {
+      console.log('AuthContext: Auth check already in progress, skipping...');
+      return;
+    }
+    
+    isChecking.current = true;
+    
+    try {
+      // Check if we have a session cookie before making API call
+      const hasSessionCookie = document.cookie.includes('session=');
+      
+      if (!hasSessionCookie) {
+        console.log('AuthContext: No session cookie found, skipping API call');
+        setUser(null);
+        
+        // Check if there's a legacy Firebase auth state and clear it
+        if (typeof window !== 'undefined' && window.localStorage) {
+          // Clear any Firebase persistence
+          const firebaseKeys = Object.keys(localStorage).filter(key => 
+            key.startsWith('firebase:') || 
+            key.includes('firebaseLocalStorage')
+          );
+          firebaseKeys.forEach(key => localStorage.removeItem(key));
+          console.log('AuthContext: Cleared legacy Firebase auth state');
+        }
+        
+        return;
+      }
+      
+      console.log('AuthContext: Session cookie found, checking authentication...');
+      const response = await fetch('/api/auth/me', {
+        method: 'GET',
+        credentials: 'include' // Include HTTP-only cookies
+      });
+
+      console.log('AuthContext: Auth check response status:', response.status);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('AuthContext: Auth response data:', data);
+        if (data.success && data.user) {
+          console.log('AuthContext: Setting user:', data.user.uid);
+          setUser(data.user);
+        } else {
+          console.log('AuthContext: No valid user in response');
+          setUser(null);
+        }
+      } else {
+        console.log('AuthContext: Auth check failed with status:', response.status);
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('AuthContext: Error checking auth status:', error);
+      setUser(null);
+    } finally {
+      isChecking.current = false;
+      if (!skipLoadingFlag) {
+        setLoading(false);
+        setInitialLoad(false);
+      }
+    }
+  }, []);
+
+  // Sign in with email/password
+  const signIn = useCallback(async (email, password) => {
+    try {
+      const response = await fetch('/api/auth/signin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        console.log('Sign in successful, setting user:', data.user.uid);
+        setUser(data.user);
+        return { user: data.user, error: null };
+      } else {
+        console.log('Sign in failed:', data);
+        return { user: null, error: data.error || 'Sign in failed' };
+      }
+    } catch (error) {
+      console.error('Sign in error:', error);
+      return { user: null, error: 'Network error' };
+    }
+  }, []);
+
+  // Sign up with email/password
+  const signUp = useCallback(async (email, password, displayName) => {
+    try {
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ email, password, displayName })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        console.log('Sign up successful, setting user:', data.user.uid);
+        setUser(data.user);
+        return { user: data.user, error: null };
+      } else {
+        console.log('Sign up failed:', data);
+        return { user: null, error: data.error || 'Sign up failed' };
+      }
+    } catch (error) {
+      console.error('Sign up error:', error);
+      return { user: null, error: 'Network error' };
+    }
+  }, []);
+
+  // Sign in with Google
+  const signInWithGoogle = useCallback(async () => {
+    try {
+      // Load Google Identity Services
+      return new Promise((resolve) => {
+        if (!window.google) {
+          const script = document.createElement('script');
+          script.src = 'https://accounts.google.com/gsi/client';
+          script.onload = () => initializeGoogleSignIn(resolve);
+          document.head.appendChild(script);
+        } else {
+          initializeGoogleSignIn(resolve);
+        }
+      });
+    } catch (error) {
+      console.error('Google sign in error:', error);
+      return { user: null, error: 'Google sign in failed' };
+    }
+  }, []);
+
+  // Initialize Google Sign-In
+  const initializeGoogleSignIn = (resolve) => {
+    // Use the actual Google OAuth client ID from environment variables
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    
+    if (!clientId) {
+      console.error('Google Client ID not configured');
+      resolve({ user: null, error: 'Google OAuth not configured' });
+      return;
+    }
+    
+    console.log('Attempting Google sign in...');
+    console.log('Using client ID:', clientId);
+    
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      auto_select: false,
+      cancel_on_tap_outside: true,
+      callback: async (response) => {
+        try {
+          const res = await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ idToken: response.credential })
+          });
+
+          const data = await res.json();
+
+          if (res.ok && data.success) {
+            console.log('Google sign in successful, setting user:', data.user.uid);
+            setUser(data.user);
+            
+            // Wait a moment for cookie to be set, then verify auth state
+            setTimeout(() => {
+              checkAuth(true); // Skip loading flag since we're already authenticated
+            }, 100);
+            
+            resolve({ user: data.user, error: null });
+          } else {
+            console.log('Google sign in failed:', data);
+            resolve({ user: null, error: data.error || 'Google sign in failed' });
+          }
+        } catch (error) {
+          console.error('Google auth error:', error);
+          resolve({ user: null, error: 'Network error' });
+        }
+      }
+    });
+
+    // Show the One Tap dialog or the Sign In With Google button
+    window.google.accounts.id.prompt();
+  };
+
+  // Sign out
+  const signOut = useCallback(async () => {
+    try {
+      await fetch('/api/auth/signout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+
+      setUser(null);
+      
+      // Clear any legacy Firebase auth state
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const firebaseKeys = Object.keys(localStorage).filter(key => 
+          key.startsWith('firebase:') || 
+          key.includes('firebaseLocalStorage')
+        );
+        firebaseKeys.forEach(key => localStorage.removeItem(key));
+      }
+      
+      return { error: null };
+    } catch (error) {
+      console.error('Sign out error:', error);
+      return { error: 'Sign out failed' };
+    }
+  }, []);
+
+  // Check auth status on mount only once
+  useEffect(() => {
+    let mounted = true;
+    
+    const performInitialAuthCheck = async () => {
+      // Run cleanup first
+      cleanupLegacyAuth();
+      
+      if (mounted) {
+        await checkAuth();
+      }
+    };
+    
+    performInitialAuthCheck();
+    
+    return () => {
+      mounted = false;
+    };
+  }, []); // Empty dependency array - only run once on mount
+
+  // Provide context value - memoize to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    user,
+    loading,
+    initialLoad,
+    isAuthenticated: !!user,
+    signIn,
+    signUp,
+    signInWithGoogle,
+    signOut,
+    checkAuth
+  }), [user, loading, initialLoad, signIn, signUp, signInWithGoogle, signOut, checkAuth]);
+
+  return (
+    <AuthContext.Provider value={contextValue}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

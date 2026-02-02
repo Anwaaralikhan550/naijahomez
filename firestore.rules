@@ -1,0 +1,176 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users can only access their own user document
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Properties - Allow server-side reads, authenticated user writes
+    match /properties/{propertyId} {
+      // Allow all reads (server-side and client-side for active properties)
+      allow read: if true;
+      allow create: if request.auth != null 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'active';
+      allow update: if request.auth != null 
+        && request.auth.uid == resource.data.userId
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null 
+        && request.auth.uid == resource.data.userId;
+    }
+    
+    // Marketplace - Allow server-side reads, authenticated user writes
+    match /marketplace/{itemId} {
+      allow read: if true;
+      allow create: if request.auth != null 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'active';
+      allow update: if request.auth != null 
+        && request.auth.uid == resource.data.userId
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null 
+        && request.auth.uid == resource.data.userId;
+    }
+    
+    // Services (Tradespeople) - Allow server-side reads, authenticated user writes
+    match /services/{serviceId} {
+      allow read: if true;
+      allow create: if request.auth != null 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'active';
+      allow update: if request.auth != null 
+        && request.auth.uid == resource.data.userId
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null 
+        && request.auth.uid == resource.data.userId;
+    }
+    
+    // Housemates - Allow server-side reads, authenticated user writes
+    match /housemates/{housemateId} {
+      allow read: if true;
+      allow create: if request.auth != null 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'active';
+      allow update: if request.auth != null 
+        && request.auth.uid == resource.data.userId
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null 
+        && request.auth.uid == resource.data.userId;
+    }
+    
+    // Noticeboard - Allow server-side reads, authenticated user writes
+    match /noticeboard/{noticeId} {
+      allow read: if true;
+      allow create: if request.auth != null 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'active';
+      allow update: if request.auth != null 
+        && request.auth.uid == resource.data.userId
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null 
+        && request.auth.uid == resource.data.userId;
+    }
+    
+    // Messages - Users can read their own sent/received messages, create new messages
+    match /messages/{messageId} {
+      allow read: if request.auth != null 
+        && (request.auth.uid == resource.data.senderId 
+            || request.auth.uid == resource.data.recipientId);
+      allow create: if request.auth != null 
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.senderId != request.resource.data.recipientId;
+      allow update: if request.auth != null 
+        && request.auth.uid == resource.data.recipientId
+        && request.resource.data.keys().hasOnly(['isRead', 'updatedAt']);
+      // No delete allowed - messages should be permanent for accountability
+    }
+    
+    // Drafts - Users can only access their own drafts
+    match /drafts/{draftId} {
+      allow read, write: if request.auth != null 
+        && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null 
+        && request.resource.data.userId == request.auth.uid;
+    }
+    
+    // Categories - Read only for all users, no client-side writes
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if false; // Only server-side operations allowed
+    }
+    
+    // Social Posts - Community feed posts  
+    match /socialPosts/{postId} {
+      // Allow read for authenticated users
+      allow read: if request.auth != null;
+      
+      // Allow create for authenticated users (with proper authorId)
+      allow create: if request.auth != null 
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.communityId != null;
+      
+      // Allow update/delete only for post authors
+      allow update, delete: if request.auth != null 
+        && request.auth.uid == resource.data.authorId;
+    }
+
+    // Hub-related collections (if they exist)
+    match /hub/{document=**} {
+      // Allow read for authenticated users with valid access codes or actual users
+      allow read: if request.auth != null;
+      
+      // Allow write only for authenticated real users (not access code users)
+      allow create, update: if request.auth != null 
+        && request.resource.data.userId == request.auth.uid;
+      
+      allow delete: if request.auth != null 
+        && request.auth.uid == resource.data.userId;
+    }
+    
+    // Hub Smart Services - Community-based access
+    match /hubSmartServices/{serviceId} {
+      // Allow read for authenticated users
+      allow read: if request.auth != null;
+      
+      // Allow create for authenticated users
+      allow create: if request.auth != null 
+        && request.resource.data.requesterUserId == request.auth.uid
+        && request.resource.data.communityId != null;
+      
+      // Allow update for service creators and participants
+      allow update: if request.auth != null 
+        && (request.auth.uid == resource.data.requesterUserId
+            || exists(/hubCommunityMembers/{request.auth.uid}));
+      
+      // Allow delete only for service creators
+      allow delete: if request.auth != null 
+        && request.auth.uid == resource.data.requesterUserId;
+    }
+    
+    // Hub Emergency System - Community-based access
+    match /hubEmergency/{recordId} {
+      // Allow read for authenticated users
+      allow read: if request.auth != null;
+      
+      // Allow create for authenticated users (emergency contacts, incidents, alerts)
+      allow create: if request.auth != null 
+        && request.resource.data.communityId != null;
+      
+      // Allow update for community members (acknowledgments, status updates)
+      allow update: if request.auth != null;
+      
+      // Allow delete only for record creators (limited cases)
+      allow delete: if request.auth != null 
+        && (request.auth.uid == resource.data.reporterUserId
+            || request.auth.uid == resource.data.coordinatorUserId);
+    }
+    
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

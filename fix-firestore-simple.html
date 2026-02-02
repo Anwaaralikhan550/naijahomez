@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fix Firestore Properties</title>
+</head>
+<body>
+    <h1>Firestore Property Field Migration</h1>
+    <button id="startMigration">Start Migration</button>
+    <div id="progress"></div>
+    <div id="log" style="height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 10px;"></div>
+
+    <script type="module">
+        // Using Firebase v9 modular SDK
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+        import { getFirestore, collection, getDocs, writeBatch, doc, query, limit, startAfter } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDGSGOa6wlpzXNYnDNJo9LM4Z9b-C3nHIM",
+            authDomain: "nijahomzs.firebaseapp.com",
+            projectId: "nijahomzs",
+            storageBucket: "nijahomzs.appspot.com",
+            messagingSenderId: "432436983079",
+            appId: "1:432436983079:web:f56066ad6c8f1d6bfd8f7b"
+        };
+
+        console.log('Initializing Firebase...');
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        console.log('Firebase initialized');
+
+        let totalProcessed = 0;
+        let totalUpdated = 0;
+        let totalSkipped = 0;
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function updateProgress() {
+            document.getElementById('progress').innerHTML = 
+                `<strong>Progress:</strong> Processed: ${totalProcessed} | Updated: ${totalUpdated} | Skipped: ${totalSkipped}`;
+        }
+
+        function parsePrice(priceStr) {
+            if (!priceStr) return null;
+            
+            let cleanPrice = priceStr
+                .replace(/₦|N|\$|USD|NGN/gi, '')
+                .replace(/,/g, '')
+                .replace(/per annum|approx\.|per month/gi, '')
+                .trim();
+            
+            const match = cleanPrice.match(/[\d,]+\.?\d*/);
+            if (match) {
+                const numStr = match[0].replace(/,/g, '');
+                const num = parseFloat(numStr);
+                return isNaN(num) ? null : num;
+            }
+            
+            return null;
+        }
+
+        function determinePropertyType(title) {
+            if (!title) return 'house';
+            
+            const titleLower = title.toLowerCase();
+            
+            if (titleLower.includes('flat') || titleLower.includes('apartment')) {
+                return 'apartment';
+            } else if (titleLower.includes('land') || titleLower.includes('plot')) {
+                return 'land';
+            } else if (titleLower.includes('duplex') || titleLower.includes('detached') || 
+                       titleLower.includes('semi-detached') || titleLower.includes('terraced') ||
+                       titleLower.includes('bungalow')) {
+                return 'house';
+            } else if (titleLower.includes('office') || titleLower.includes('shop') || 
+                       titleLower.includes('commercial') || titleLower.includes('warehouse')) {
+                return 'commercial';
+            } else if (titleLower.includes('room') || titleLower.includes('mini flat') ||
+                       titleLower.includes('self contain') || titleLower.includes('studio')) {
+                return 'apartment';
+            }
+            
+            if (titleLower.match(/\d+\s*bedroom/)) {
+                return titleLower.includes('flat') ? 'apartment' : 'house';
+            }
+            
+            return 'house';
+        }
+
+        async function testFirestoreAccess() {
+            log('🔍 Testing Firestore access...');
+            try {
+                // Try to get just one document to test access
+                const propertiesRef = collection(db, 'properties');
+                const q = query(propertiesRef, limit(1));
+                
+                log('Executing test query...');
+                const snapshot = await getDocs(q);
+                
+                log(`✅ Firestore access successful! Found ${snapshot.size} property in test`);
+                
+                if (snapshot.size > 0) {
+                    const testDoc = snapshot.docs[0];
+                    const data = testDoc.data();
+                    log(`📄 Sample property: ${data.title || 'No title'}`);
+                    log(`🏷️ Current type: ${data.type || 'undefined'}`);
+                    log(`📂 Current category: ${data.category || 'undefined'}`);
+                    log(`🏠 Current propertyType: ${data.propertyType || 'undefined'}`);
+                    log(`💰 Current rate: ${data.rate || 'undefined'}`);
+                    log(`🔢 Current priceNumeric: ${data.priceNumeric || 'undefined'}`);
+                }
+                
+                return snapshot.size;
+            } catch (error) {
+                log(`❌ Firestore access failed: ${error.message}`);
+                log(`Error code: ${error.code || 'unknown'}`);
+                return -1;
+            }
+        }
+
+        async function processBatch(lastDoc = null, batchNum = 1) {
+            log(`\n📦 Processing batch ${batchNum} (starting after: ${lastDoc?.id || 'beginning'})`);
+            
+            try {
+                const propertiesRef = collection(db, 'properties');
+                let q = query(propertiesRef, limit(20)); // Smaller batches
+                
+                if (lastDoc) {
+                    q = query(propertiesRef, startAfter(lastDoc), limit(20));
+                }
+                
+                log('Executing batch query...');
+                const snapshot = await getDocs(q);
+                log(`Query returned ${snapshot.size} documents`);
+                
+                if (snapshot.empty) {
+                    log('✅ No more properties to process');
+                    return null;
+                }
+                
+                const batch = writeBatch(db);
+                let batchUpdates = 0;
+                
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    const updates = {};
+                    let needsUpdate = false;
+                    
+                    totalProcessed++;
+                    
+                    // 1. Add propertyType if missing (most important for filtering)
+                    if (!data.propertyType) {
+                        updates.propertyType = determinePropertyType(data.title);
+                        needsUpdate = true;
+                        log(`🏠 Adding propertyType: "${updates.propertyType}" for "${data.title}"`);
+                    }
+                    
+                    // 2. Remove category: "property" since we now have propertyType
+                    if (data.category === 'property') {
+                        updates.category = null;
+                        needsUpdate = true;
+                        log(`🗑️ Removing category: "property" for "${data.title}"`);
+                    }
+                    
+                    // 3. Add priceNumeric field for sorting/filtering
+                    if (!data.priceNumeric && data.rate) {
+                        const numericPrice = parsePrice(data.rate);
+                        if (numericPrice) {
+                            updates.priceNumeric = numericPrice;
+                            needsUpdate = true;
+                            log(`💰 Adding priceNumeric: ${numericPrice} from "${data.rate}"`);
+                        }
+                    }
+                    
+                    // 4. Fix rentAmount structure if it exists but is incomplete
+                    if (data.rentAmount && (!data.rentAmount.monthly || !data.rentAmount.annual)) {
+                        const numericPrice = parsePrice(data.rate);
+                        if (numericPrice) {
+                            updates.rentAmount = {
+                                monthly: data.rentType === 'monthly' ? numericPrice : Math.round(numericPrice / 12),
+                                annual: data.rentType === 'annual' ? numericPrice : numericPrice * 12,
+                                currency: 'NGN'
+                            };
+                            needsUpdate = true;
+                            log(`🏠 Fixing rentAmount structure for "${data.title}"`);
+                        }
+                    }
+                    
+                    // 5. Convert string numbers to actual numbers
+                    if (data.bedrooms && typeof data.bedrooms === 'string' && data.bedrooms !== 'none') {
+                        const bedroomNum = parseInt(data.bedrooms);
+                        if (!isNaN(bedroomNum)) {
+                            updates.bedrooms = bedroomNum;
+                            needsUpdate = true;
+                            log(`🛏️ Converting bedrooms from "${data.bedrooms}" to ${bedroomNum}`);
+                        }
+                    }
+                    
+                    if (data.bathrooms && typeof data.bathrooms === 'string') {
+                        const bathroomNum = parseInt(data.bathrooms);
+                        if (!isNaN(bathroomNum)) {
+                            updates.bathrooms = bathroomNum;
+                            needsUpdate = true;
+                            log(`🚿 Converting bathrooms from "${data.bathrooms}" to ${bathroomNum}`);
+                        }
+                    }
+                    
+                    if (data.toilets && typeof data.toilets === 'string') {
+                        const toiletNum = parseInt(data.toilets);
+                        if (!isNaN(toiletNum)) {
+                            updates.toilets = toiletNum;
+                            needsUpdate = true;
+                            log(`🚽 Converting toilets from "${data.toilets}" to ${toiletNum}`);
+                        }
+                    }
+                    
+                    if (needsUpdate) {
+                        updates.updatedAt = new Date();
+                        batch.update(doc(db, 'properties', docSnap.id), updates);
+                        batchUpdates++;
+                        totalUpdated++;
+                        
+                        if (totalProcessed % 5 === 0) {
+                            log(`📊 Progress: ${totalProcessed} processed, ${totalUpdated} updated, ${totalSkipped} skipped`);
+                        }
+                    } else {
+                        totalSkipped++;
+                    }
+                });
+                
+                if (batchUpdates > 0) {
+                    log(`💾 Committing ${batchUpdates} updates to Firestore...`);
+                    await batch.commit();
+                    log(`✅ Batch ${batchNum} committed successfully!`);
+                } else {
+                    log(`⏭️ No updates needed for batch ${batchNum}`);
+                }
+                
+                updateProgress();
+                return snapshot.docs[snapshot.docs.length - 1];
+                
+            } catch (error) {
+                log(`❌ Error in batch ${batchNum}: ${error.message}`);
+                throw error;
+            }
+        }
+
+        async function startMigration() {
+            log('🚀 Starting Firestore property migration...');
+            document.getElementById('startMigration').disabled = true;
+            
+            try {
+                // Test access first
+                const testResult = await testFirestoreAccess();
+                if (testResult === -1) {
+                    log('❌ Cannot access Firestore. Check your Firebase configuration.');
+                    return;
+                }
+                
+                if (testResult === 0) {
+                    log('⚠️ No properties found in Firestore. Nothing to migrate.');
+                    return;
+                }
+                
+                log(`\n🎯 Starting migration of properties...`);
+                
+                let lastDoc = null;
+                let batchCount = 0;
+                
+                while (true) {
+                    batchCount++;
+                    lastDoc = await processBatch(lastDoc, batchCount);
+                    
+                    if (!lastDoc) {
+                        break; // No more documents
+                    }
+                    
+                    // Small delay between batches to avoid rate limits
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                
+                log('\n🎉 Migration completed successfully!');
+                log(`📊 Final Results:`);
+                log(`   Total processed: ${totalProcessed}`);
+                log(`   Total updated: ${totalUpdated}`);
+                log(`   Total skipped: ${totalSkipped}`);
+                
+            } catch (error) {
+                log(`❌ Migration failed: ${error.message}`);
+                log(`Error details: ${error.stack || 'No stack trace'}`);
+            } finally {
+                document.getElementById('startMigration').disabled = false;
+            }
+        }
+
+        document.getElementById('startMigration').addEventListener('click', startMigration);
+        
+        // Auto-run test on page load
+        window.addEventListener('load', () => {
+            setTimeout(testFirestoreAccess, 1000);
+        });
+    </script>
+</body>
+</html>

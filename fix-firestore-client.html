@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fix Firestore Properties</title>
+</head>
+<body>
+    <h1>Firestore Property Field Migration</h1>
+    <button id="startMigration">Start Migration</button>
+    <div id="progress"></div>
+    <div id="log"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, getDocs, writeBatch, doc, query, limit, startAfter } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDGSGOa6wlpzXNYnDNJo9LM4Z9b-C3nHIM",
+            authDomain: "nijahomzs.firebaseapp.com",
+            projectId: "nijahomzs",
+            storageBucket: "nijahomzs.appspot.com",
+            messagingSenderId: "432436983079",
+            appId: "1:432436983079:web:f56066ad6c8f1d6bfd8f7b"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let totalProcessed = 0;
+        let totalUpdated = 0;
+        let totalSkipped = 0;
+
+        function log(message) {
+            document.getElementById('log').innerHTML += '<div>' + message + '</div>';
+            console.log(message);
+        }
+
+        function updateProgress() {
+            document.getElementById('progress').innerHTML = 
+                `Processed: ${totalProcessed} | Updated: ${totalUpdated} | Skipped: ${totalSkipped}`;
+        }
+
+        function parsePrice(priceStr) {
+            if (!priceStr) return null;
+            
+            let cleanPrice = priceStr
+                .replace(/₦|N|\$|USD|NGN/gi, '')
+                .replace(/,/g, '')
+                .replace(/per annum|approx\.|per month/gi, '')
+                .trim();
+            
+            const match = cleanPrice.match(/[\d,]+\.?\d*/);
+            if (match) {
+                const numStr = match[0].replace(/,/g, '');
+                const num = parseFloat(numStr);
+                return isNaN(num) ? null : num;
+            }
+            
+            return null;
+        }
+
+        function determinePropertyType(title) {
+            if (!title) return 'house';
+            
+            const titleLower = title.toLowerCase();
+            
+            if (titleLower.includes('flat') || titleLower.includes('apartment')) {
+                return 'apartment';
+            } else if (titleLower.includes('land') || titleLower.includes('plot')) {
+                return 'land';
+            } else if (titleLower.includes('duplex') || titleLower.includes('detached') || 
+                       titleLower.includes('semi-detached') || titleLower.includes('terraced') ||
+                       titleLower.includes('bungalow')) {
+                return 'house';
+            } else if (titleLower.includes('office') || titleLower.includes('shop') || 
+                       titleLower.includes('commercial') || titleLower.includes('warehouse')) {
+                return 'commercial';
+            } else if (titleLower.includes('room') || titleLower.includes('mini flat') ||
+                       titleLower.includes('self contain') || titleLower.includes('studio')) {
+                return 'apartment';
+            }
+            
+            if (titleLower.match(/\d+\s*bedroom/)) {
+                return titleLower.includes('flat') ? 'apartment' : 'house';
+            }
+            
+            return 'house';
+        }
+
+        async function processBatch(lastDoc = null) {
+            log(`Processing batch starting after: ${lastDoc?.id || 'beginning'}`);
+            
+            try {
+                let propertyQuery = query(collection(db, 'properties'), limit(50));
+                if (lastDoc) {
+                    propertyQuery = query(collection(db, 'properties'), startAfter(lastDoc), limit(50));
+                }
+                
+                log('Executing Firestore query...');
+                const snapshot = await getDocs(propertyQuery);
+                log(`Query returned ${snapshot.size} documents`);
+            
+            if (snapshot.empty) {
+                log('No more properties to process');
+                return null;
+            }
+            
+            const batch = writeBatch(db);
+            let batchUpdates = 0;
+            
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data();
+                const updates = {};
+                let needsUpdate = false;
+                
+                totalProcessed++;
+                
+                // Replace type: "property" with proper propertyType
+                if (!data.propertyType) {
+                    updates.propertyType = determinePropertyType(data.title);
+                    needsUpdate = true;
+                }
+                
+                // Remove the generic "property" type field since we now have propertyType
+                if (data.type === 'property') {
+                    updates.type = null;
+                    needsUpdate = true;
+                }
+                
+                // Add priceNumeric field
+                if (!data.priceNumeric && data.rate) {
+                    const numericPrice = parsePrice(data.rate);
+                    if (numericPrice) {
+                        updates.priceNumeric = numericPrice;
+                        needsUpdate = true;
+                    }
+                }
+                
+                if (needsUpdate) {
+                    updates.updatedAt = new Date();
+                    batch.update(doc(db, 'properties', docSnap.id), updates);
+                    batchUpdates++;
+                    totalUpdated++;
+                } else {
+                    totalSkipped++;
+                }
+            });
+            
+            if (batchUpdates > 0) {
+                log(`Committing ${batchUpdates} updates...`);
+                await batch.commit();
+                log(`✅ Batch committed successfully`);
+            } else {
+                log('No updates needed for this batch');
+            }
+            
+            updateProgress();
+            return snapshot.docs[snapshot.docs.length - 1];
+            
+            } catch (error) {
+                log('❌ Error in processBatch: ' + error.message);
+                throw error;
+            }
+        }
+
+        async function testConnection() {
+            log('Testing Firestore connection...');
+            try {
+                const testQuery = query(collection(db, 'properties'), limit(1));
+                const testSnapshot = await getDocs(testQuery);
+                log(`✅ Connection successful! Found ${testSnapshot.size} properties in test`);
+                return true;
+            } catch (error) {
+                log(`❌ Connection failed: ${error.message}`);
+                return false;
+            }
+        }
+
+        async function startMigration() {
+            log('🚀 Starting migration...');
+            document.getElementById('startMigration').disabled = true;
+            
+            // Test connection first
+            const connected = await testConnection();
+            if (!connected) {
+                document.getElementById('startMigration').disabled = false;
+                return;
+            }
+            
+            try {
+                let lastDoc = null;
+                let batchCount = 0;
+                
+                while (true) {
+                    batchCount++;
+                    log(`\n📦 Processing batch ${batchCount}...`);
+                    
+                    lastDoc = await processBatch(lastDoc);
+                    
+                    if (!lastDoc) {
+                        break;
+                    }
+                    
+                    // Small delay between batches
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                
+                log('\n🎉 Migration completed!');
+                log(`Final Results: Processed: ${totalProcessed}, Updated: ${totalUpdated}, Skipped: ${totalSkipped}`);
+                
+            } catch (error) {
+                log('❌ Migration failed: ' + error.message);
+            }
+            
+            document.getElementById('startMigration').disabled = false;
+        }
+
+        document.getElementById('startMigration').addEventListener('click', startMigration);
+    </script>
+</body>
+</html>

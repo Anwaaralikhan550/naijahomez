@@ -1,0 +1,88 @@
+/* Property Detail Styles */
+.property-header {
+    @apply flex justify-between items-start mb-6;
+  }
+  
+  .property-title {
+    @apply text-3xl font-bold text-blue-900 mb-2;
+  }
+  
+  .property-location {
+    @apply flex items-center text-gray-700;
+  }
+  
+  .property-price {
+    @apply text-3xl font-bold text-blue-900 mb-2;
+  }
+  
+  .property-tag {
+    @apply bg-orange-100 text-orange-600 px-3 py-1 rounded-full font-medium;
+  }
+  
+  .property-gallery {
+    @apply grid grid-cols-2 gap-4 mb-8;
+  }
+  
+  .property-main-image {
+    @apply col-span-2 w-full h-96 object-cover rounded-lg;
+  }
+  
+  .property-sub-image {
+    @apply w-full h-48 object-cover rounded-lg;
+  }
+  
+  .property-actions {
+    @apply flex gap-4 mb-8;
+  }
+  
+  .property-action-button-primary {
+    @apply flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors;
+  }
+  
+  .property-action-button-secondary {
+    @apply flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors;
+  }
+  
+  .property-content {
+    @apply grid md:grid-cols-3 gap-8;
+  }
+  
+  .property-main-content {
+    @apply md:col-span-2;
+  }
+  
+  .property-details-card {
+    @apply bg-white rounded-lg shadow-md p-6 mb-6;
+  }
+  
+  .property-sidebar {
+    @apply md:col-span-1;
+  }
+  
+  .property-section-title {
+    @apply text-xl font-semibold text-blue-900 mb-4;
+  }
+  
+  .property-details-grid {
+    @apply grid grid-cols-2 md:grid-cols-4 gap-4;
+  }
+  
+  .property-detail-item {
+    @apply flex items-center gap-2 text-gray-700;
+  }
+  
+  .property-description {
+    @apply prose max-w-none text-gray-700;
+  }
+  
+  .contact-form {
+    @apply bg-white rounded-lg shadow-md p-6;
+  }
+  
+  .contact-input {
+    @apply w-full p-3 border rounded-lg mb-4;
+  }
+  
+  .contact-button {
+    @apply w-full bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 transition-colors;
+  }

@@ -1,0 +1,108 @@
+@import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Kalam:wght@400;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Touch target improvements for mobile */
+@layer utilities {
+  .touch-target {
+    @apply min-h-[44px];
+  }
+  
+  .touch-target:focus {
+    @apply outline-none ring-2 ring-offset-2;
+  }
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #464444;
+  --header-height: 6rem; /* 64px */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #575555;
+    --foreground: #020202;
+  }
+}
+
+@keyframes float {
+  0%, 100% { 
+    transform: translateY(0px) rotate(0deg); 
+  }
+  50% { 
+    transform: translateY(-10px) rotate(2deg); 
+  }
+}
+
+@keyframes glow {
+  0%, 100% { 
+    text-shadow: 
+      2px 2px 4px rgba(0,0,0,0.3),
+      0 0 10px rgba(249, 115, 22, 0.5),
+      0 0 20px rgba(249, 115, 22, 0.3);
+  }
+  50% { 
+    text-shadow: 
+      2px 2px 4px rgba(0,0,0,0.3),
+      0 0 15px rgba(249, 115, 22, 0.8),
+      0 0 30px rgba(249, 115, 22, 0.5);
+  }
+}
+
+@keyframes writing {
+  0% {
+    width: 0;
+    opacity: 0;
+    transform: translateX(-20px) rotate(-5deg);
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    width: 100%;
+    opacity: 1;
+    transform: translateX(0) rotate(0deg);
+  }
+}
+
+@keyframes blink {
+  from, to { border-color: transparent }
+  50% { border-color: #f97316; }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+.handwritten-text {
+  font-family: 'Dancing Script', cursive;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: white;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.animate-text-writing {
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  animation: writing 1.5s ease-out forwards;
+  transform-origin: left;
+}

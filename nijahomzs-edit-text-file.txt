@@ -1,0 +1,105 @@
+Developer Action Checklist – Hub & Marketplace
+Priority Key
+?P1 – Critical: Blocks core functionality; must be fixed before release.
+?P2 – High: Major UX/consistency issues; impacts usability but not core function.
+?P3 – Medium: Improvements or refinements; enhances user experience.
+?P4 – Low: Cosmetic/optional enhancements.
+
+1. Homepage & Navigation
+Issue/Area	Action	Priority	Expected Fix
+Mobile alignment (Notice Board card off-center)	Center the “Notice Board” category on mobile	P3	Adjust CSS layout for Pixel 7 and similar devices
+Search bar removed	None; change confirmed	P4	Maintain current layout
+Video & main navigation cards	Maintain current layout	P4	Ensure video is centered and cards remain prominent
+Top menu spacing	Keep spacing	P4	No edits needed
+Lower homepage sections	No edits needed	P4	Maintain standard listing template
+
+2. Listing Pages
+Issue/Area	Action	Priority	Expected Fix
+Property listing layout	Maintain current layout	P4	No edits needed
+Single listing page layout	Maintain current layout	P4	No edits needed
+
+3. Dashboard / Posting Issues
+Issue/Area	Action	Priority	Expected Fix
+PNG image uploads <5MB fail	Investigate backend/image handling; enable PNG upload and successful property posting	P1	Fix file type handling and upload validation; ensure posting completes without error
+
+4. Hub Section
+Issue/Area	Action	Priority	Expected Fix
+Community creation flow	Ensure back-end logic aligns with front-end creation and access code requests	P1	Verify DB API calls, data saving, and front-end fetch for new communities
+Highlight mandatory fields	Optional: make fields red	P3	CSS update for mandatory field visibility
+Design & structure	Maintain current layout	P4	Four sections remain visually distinct
+
+5. Hub Dashboard / Admin Panel
+Issue/Area	Action	Priority	Expected Fix
+Admin label shows as “Hub Member”	Update label to clearly show “Admin”; refine visibility of admin-only panels	P2	Front-end role detection and label update
+Activity logs show unrelated posts/messages	Investigate back-end filtering; ensure logs are community-specific	P1	Add proper filtering for logs to display only relevant community data
+
+6. Front-End / Back-End Communication
+Issue/Area	Action	Priority	Expected Fix
+Community feed & discussion forum	Ensure posts/announcements are visible on front-end after success	P1	Verify API calls and front-end state updates
+Community chat & private messages	Debug messaging system; ensure delivery and display	P1	Fix WebSocket/API handling and UI refresh
+Events & bookings	Standardize success messages and icons	P2	Consistent message color/emoji formatting
+
+7. UI/UX Inconsistencies
+Issue/Area	Action	Priority	Expected Fix
+Color themes inconsistent (green, blue, red)	Harmonize colors; use red only for errors, neutral for success	P2	Update CSS for Hub sections
+Request-to-join button state	Change to “Requested” after submission; prevent multiple clicks	P2	Front-end button state update with back-end confirmation
+Overall navigation / flow	Ensure clarity for user roles and messaging	P3	Minor tweaks to labels and instructions
+
+8. Back-End / Front-End Communication Bugs
+Issue/Area	Action	Priority	Expected Fix
+Posts, marketplace items, issues not displayed	Ensure front-end fetches and displays all back-end data	P1	Debug API calls, state management, and caching
+Emergency alerts not visible; success messages green	Make alerts visible; standardize colors (critical = red, success = neutral)	P1	Adjust back-end/front-end messaging logic
+Access codes not visible; purpose field mandatory; dashboard freeze	Show codes on front-end; remove mandatory “purpose”; fix dashboard stability	P1	Front-end rendering for access codes, form validation update, fix repeated login/logout issue
+
+Summary of Critical Action Points (P1)
+1.Fix front-end/back-end sync for posts, issues, marketplace items, alerts, chat, and messages.
+2.Correct activity logs to display only community-specific actions.
+3.Enable PNG uploads and successful property posting.
+4.Ensure access codes generate correctly, visible to users, and dashboard remains stable.
+1. Back-End / Front-End Sync Issues
+Issue/Area	Action	Priority	Expected Fix
+Posts, issues, marketplace items not displaying	Ensure front-end fetches and renders all back-end data correctly	P1	Debug API calls, state management, caching; verify real-time updates
+Emergency alerts not visible	Standardize alert handling; ensure visibility on front-end	P1	Update front-end rendering and color coding; critical alerts = red, success = neutral
+Access codes not visible	Show access codes on front-end; make flow testable	P1	Correct API call to fetch/display codes; make codes shareable and usable
+
+2. UI / UX Consistency
+Issue/Area	Action	Priority	Expected Fix
+Message colors inconsistent	Standardize success/error colors across Hub	P2	Success = neutral/blue, Critical/Error = red; harmonize across all sections
+Request-to-Join button	Update state after submission; prevent duplicates	P2	Button shows “Requested” after click; block duplicate success messages
+Community membership counts	Correct total members and pending join request display	P1	Fix back-end queries and front-end rendering for accurate member counts
+Dashboard / page freeze	Review session handling, refresh, state management	P1	Prevent freezing after repeated operations or multiple refreshes
+
+3. Login / Dashboard / Redirection
+Issue/Area	Action	Priority	Expected Fix
+Users remain on Sign-in page after login	Fix login redirection	P1	Ensure session recognition and redirect to dashboard after login
+Dashboard freezes on repeated login/logout	Stabilize session handling	P1	Fix front-end session state and back-end session expiry
+Unexpected logout behavior	Ensure proper post-logout redirection	P2	Redirect users to appropriate page (Sign-in or homepage)
+
+4. Community Search / Join Flow
+Issue/Area	Action	Priority	Expected Fix
+Search requires button click	Implement real-time search	P2	Search results appear as user types
+Search is case-sensitive	Make search case-insensitive	P2	Modify query/filter logic for front-end and back-end
+Misleading instructions for admins	Correct displayed messages	P2	Ensure admin sees appropriate instructions; remove “Contact admin” when unnecessary
+
+5. Access Codes
+Issue/Area	Action	Priority	Expected Fix
+Purpose field mandatory but redundant	Make field optional	P3	Update form validation logic
+Access codes not visible / unusable	Ensure visibility and usability	P1	Front-end fetch/display; back-end checks for sharing and usage
+
+6. Minor / Optional UI Improvements
+Issue/Area	Action	Priority	Expected Fix
+Message and success/error consistency	Harmonize colors and format	P3	Minor CSS updates across sections
+Dashboard load inconsistencies	Review page refresh and state	P3	Optimize front-end state handling for smoother UX
+
+7. Summary of Critical Action Points
+P1 – Critical Bugs
+1.Front-end/back-end sync failures: posts, issues, alerts, access codes.
+2.Dashboard access, login redirection, and session handling failures.
+3.Pending join requests and membership counts not visible in admin panel.
+P2 – UX / UI Enhancements
+1.Standardize success/error message colors.
+2.Fix request-to-join button state handling.
+3.Improve search responsiveness and make case-insensitive.
+P3 – Optional / Medium Improvements
+1.Remove unnecessary mandatory fields (access code purpose).
+2.Minor dashboard UX refinements, page refresh handling.

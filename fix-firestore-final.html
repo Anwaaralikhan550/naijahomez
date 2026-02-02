@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fix Firestore Properties - Final Version</title>
+</head>
+<body>
+    <h1>Firestore Property Migration</h1>
+    <p><strong>This will fix:</strong></p>
+    <ul>
+        <li>Add missing <code>propertyType</code> field (website expects this)</li>
+        <li>Add missing <code>priceNumeric</code> field (for sorting)</li>
+        <li>Remove useless <code>category: "property"</code> field</li>
+        <li>Convert string numbers to integers (bedrooms, bathrooms, toilets)</li>
+    </ul>
+    
+    <button id="startMigration">Start Migration</button>
+    <div id="progress" style="margin: 10px 0; font-weight: bold;"></div>
+    <div id="log" style="height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: #f9f9f9; font-family: monospace; font-size: 12px;"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+        import { getFirestore, collection, getDocs, writeBatch, doc, query, limit, startAfter } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+            authDomain: "nijahomzs-1ead3.firebaseapp.com",
+            projectId: "nijahomzs-1ead3",
+            storageBucket: "nijahomzs-1ead3.firebasestorage.app",
+            messagingSenderId: "495544413710",
+            appId: "1:495544413710:web:32c35206f5dfef2cedd65f"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let totalProcessed = 0;
+        let totalUpdated = 0;
+        let totalSkipped = 0;
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function updateProgress() {
+            document.getElementById('progress').innerHTML = 
+                `Processed: ${totalProcessed} | Updated: ${totalUpdated} | Skipped: ${totalSkipped}`;
+        }
+
+        function parsePrice(priceStr) {
+            if (!priceStr) return null;
+            
+            // Remove currency symbols and text, keep only numbers
+            let cleanPrice = priceStr
+                .replace(/₦|N|\$|USD|NGN|per annum|approx\.|per month/gi, '')
+                .replace(/,/g, '')
+                .trim();
+            
+            // Extract first number found
+            const match = cleanPrice.match(/[\d\.]+/);
+            if (match) {
+                const num = parseFloat(match[0]);
+                return isNaN(num) ? null : num;
+            }
+            
+            return null;
+        }
+
+        function determinePropertyType(title) {
+            if (!title) return 'house';
+            
+            const titleLower = title.toLowerCase();
+            
+            // Check for apartments/flats
+            if (titleLower.includes('flat') || titleLower.includes('apartment') || 
+                titleLower.includes('self contain') || titleLower.includes('studio') ||
+                titleLower.includes('mini flat') || titleLower.includes('room')) {
+                return 'apartment';
+            }
+            
+            // Check for land
+            if (titleLower.includes('land') || titleLower.includes('plot')) {
+                return 'land';
+            }
+            
+            // Check for commercial
+            if (titleLower.includes('office') || titleLower.includes('shop') || 
+                titleLower.includes('commercial') || titleLower.includes('warehouse')) {
+                return 'commercial';
+            }
+            
+            // Everything else is house (duplex, detached, bungalow, etc.)
+            return 'house';
+        }
+
+        async function testConnection() {
+            log('🔍 Testing Firestore connection...');
+            try {
+                const q = query(collection(db, 'properties'), limit(3));
+                const snapshot = await getDocs(q);
+                
+                log(`✅ Connected! Found ${snapshot.size} properties in test`);
+                
+                if (snapshot.size > 0) {
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        log(`📄 Sample: "${data.title}"`);
+                        log(`   - category: ${data.category || 'undefined'}`);
+                        log(`   - propertyType: ${data.propertyType || 'undefined'}`);
+                        log(`   - rate: ${data.rate || 'undefined'}`);
+                        log(`   - priceNumeric: ${data.priceNumeric || 'undefined'}`);
+                    });
+                }
+                
+                return snapshot.size;
+            } catch (error) {
+                log(`❌ Connection failed: ${error.message}`);
+                return -1;
+            }
+        }
+
+        async function processBatch(lastDoc = null, batchNum = 1) {
+            log(`\n📦 Batch ${batchNum} (after: ${lastDoc?.id || 'start'})`);
+            
+            try {
+                let q = query(collection(db, 'properties'), limit(15));
+                if (lastDoc) {
+                    q = query(collection(db, 'properties'), startAfter(lastDoc), limit(15));
+                }
+                
+                const snapshot = await getDocs(q);
+                
+                if (snapshot.empty) {
+                    log('✅ No more properties');
+                    return null;
+                }
+                
+                const batch = writeBatch(db);
+                let batchUpdates = 0;
+                
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    const updates = {};
+                    let needsUpdate = false;
+                    
+                    totalProcessed++;
+                    
+                    // 1. Add propertyType (website expects this field)
+                    if (!data.propertyType) {
+                        updates.propertyType = determinePropertyType(data.title);
+                        needsUpdate = true;
+                    }
+                    
+                    // 2. Add priceNumeric for sorting
+                    if (!data.priceNumeric && data.rate) {
+                        const numericPrice = parsePrice(data.rate);
+                        if (numericPrice) {
+                            updates.priceNumeric = numericPrice;
+                            needsUpdate = true;
+                        }
+                    }
+                    
+                    // 3. Remove category: "property" (not needed)
+                    if (data.category === 'property') {
+                        updates.category = null;
+                        needsUpdate = true;
+                    }
+                    
+                    // 4. Convert string numbers to integers
+                    if (data.bedrooms && typeof data.bedrooms === 'string' && data.bedrooms !== 'none') {
+                        const num = parseInt(data.bedrooms);
+                        if (!isNaN(num)) {
+                            updates.bedrooms = num;
+                            needsUpdate = true;
+                        }
+                    }
+                    
+                    if (data.bathrooms && typeof data.bathrooms === 'string') {
+                        const num = parseInt(data.bathrooms);
+                        if (!isNaN(num)) {
+                            updates.bathrooms = num;
+                            needsUpdate = true;
+                        }
+                    }
+                    
+                    if (data.toilets && typeof data.toilets === 'string') {
+                        const num = parseInt(data.toilets);
+                        if (!isNaN(num)) {
+                            updates.toilets = num;
+                            needsUpdate = true;
+                        }
+                    }
+                    
+                    if (needsUpdate) {
+                        updates.updatedAt = new Date();
+                        batch.update(doc(db, 'properties', docSnap.id), updates);
+                        batchUpdates++;
+                        totalUpdated++;
+                    } else {
+                        totalSkipped++;
+                    }
+                });
+                
+                if (batchUpdates > 0) {
+                    log(`💾 Committing ${batchUpdates} updates...`);
+                    await batch.commit();
+                    log(`✅ Batch ${batchNum} committed!`);
+                } else {
+                    log(`⏭️ No updates needed`);
+                }
+                
+                updateProgress();
+                return snapshot.docs[snapshot.docs.length - 1];
+                
+            } catch (error) {
+                log(`❌ Batch ${batchNum} error: ${error.message}`);
+                throw error;
+            }
+        }
+
+        async function startMigration() {
+            log('🚀 Starting migration...');
+            document.getElementById('startMigration').disabled = true;
+            
+            try {
+                const testResult = await testConnection();
+                if (testResult <= 0) {
+                    log('❌ Cannot proceed - no data or connection failed');
+                    return;
+                }
+                
+                log(`\n🎯 Migrating ${testResult}+ properties...`);
+                
+                let lastDoc = null;
+                let batchCount = 0;
+                
+                while (true) {
+                    batchCount++;
+                    lastDoc = await processBatch(lastDoc, batchCount);
+                    
+                    if (!lastDoc) break;
+                    
+                    // Small delay
+                    await new Promise(r => setTimeout(r, 300));
+                }
+                
+                log('\n🎉 Migration completed!');
+                log(`📊 Results: ${totalProcessed} processed, ${totalUpdated} updated, ${totalSkipped} skipped`);
+                
+            } catch (error) {
+                log(`❌ Migration failed: ${error.message}`);
+            } finally {
+                document.getElementById('startMigration').disabled = false;
+            }
+        }
+
+        document.getElementById('startMigration').addEventListener('click', startMigration);
+        
+        // Auto-test on load
+        setTimeout(testConnection, 1000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Rent Properties</title>
+</head>
+<body>
+    <h1>Debug Rent Properties Issue</h1>
+    <button id="debug">Check Rent Properties</button>
+    <div id="log" style="height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: #f9f9f9; font-family: monospace; font-size: 12px; margin-top: 10px;"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+        import { getFirestore, collection, getDocs, query, limit, where } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+            authDomain: "nijahomzs-1ead3.firebaseapp.com",
+            projectId: "nijahomzs-1ead3",
+            storageBucket: "nijahomzs-1ead3.firebasestorage.app",
+            messagingSenderId: "495544413710",
+            appId: "1:495544413710:web:32c35206f5dfef2cedd65f"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += '<div>' + message + '</div>';
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        async function debugRentProperties() {
+            log('🔍 Debugging rent properties issue...');
+            
+            try {
+                // 1. Check total properties
+                log('\n📊 1. Checking total properties...');
+                const allPropsQuery = query(collection(db, 'properties'), limit(20));
+                const allSnapshot = await getDocs(allPropsQuery);
+                log(`Total properties (sample): ${allSnapshot.size}`);
+                
+                // 2. Analyze listingType values
+                log('\n📊 2. Analyzing listingType values...');
+                const listingTypes = {};
+                const sampleProperties = [];
+                
+                allSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    const listingType = data.listingType;
+                    
+                    if (listingTypes[listingType]) {
+                        listingTypes[listingType]++;
+                    } else {
+                        listingTypes[listingType] = 1;
+                    }
+                    
+                    // Keep first 5 for detailed analysis
+                    if (sampleProperties.length < 5) {
+                        sampleProperties.push({
+                            id: doc.id,
+                            title: data.title,
+                            listingType: data.listingType,
+                            propertyType: data.propertyType,
+                            category: data.category,
+                            rate: data.rate,
+                            priceNumeric: data.priceNumeric
+                        });
+                    }
+                });
+                
+                log('ListingType distribution:');
+                for (const [type, count] of Object.entries(listingTypes)) {
+                    log(`  "${type}": ${count} properties`);
+                }
+                
+                // 3. Show sample properties
+                log('\n📄 3. Sample properties:');
+                sampleProperties.forEach((prop, i) => {
+                    log(`${i + 1}. "${prop.title}"`);
+                    log(`   listingType: "${prop.listingType}"`);
+                    log(`   propertyType: "${prop.propertyType}"`);
+                    log(`   category: "${prop.category}"`);
+                    log(`   rate: "${prop.rate}"`);
+                    log(`   priceNumeric: ${prop.priceNumeric}`);
+                });
+                
+                // 4. Try to query rent properties specifically
+                log('\n🏠 4. Trying to query rent properties...');
+                try {
+                    const rentQuery = query(
+                        collection(db, 'properties'), 
+                        where('listingType', '==', 'rent'),
+                        limit(5)
+                    );
+                    const rentSnapshot = await getDocs(rentQuery);
+                    log(`Found ${rentSnapshot.size} properties with listingType="rent"`);
+                    
+                    rentSnapshot.forEach(doc => {
+                        const data = doc.data();
+                        log(`  Rent property: "${data.title}"`);
+                    });
+                } catch (error) {
+                    log(`❌ Error querying rent properties: ${error.message}`);
+                }
+                
+                // 5. Try other possible rent values
+                log('\n🔍 5. Checking for other rent variations...');
+                const rentVariations = ['rental', 'for-rent', 'forrent', 'to-let', 'tolet'];
+                
+                for (const variation of rentVariations) {
+                    try {
+                        const varQuery = query(
+                            collection(db, 'properties'),
+                            where('listingType', '==', variation),
+                            limit(2)
+                        );
+                        const varSnapshot = await getDocs(varQuery);
+                        if (varSnapshot.size > 0) {
+                            log(`  Found ${varSnapshot.size} properties with listingType="${variation}"`);
+                        }
+                    } catch (error) {
+                        // Ignore errors for non-existent values
+                    }
+                }
+                
+                // 6. Check if there's a status field blocking rent properties
+                log('\n🚦 6. Checking status field...');
+                const statusMap = {};
+                allSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    const status = data.status || 'undefined';
+                    statusMap[status] = (statusMap[status] || 0) + 1;
+                });
+                
+                log('Status distribution:');
+                for (const [status, count] of Object.entries(statusMap)) {
+                    log(`  "${status}": ${count} properties`);
+                }
+                
+                // 7. Test API call
+                log('\n🌐 7. Testing API call for rent properties...');
+                try {
+                    const response = await fetch('/api/properties?listingType=rent&limit=5');
+                    const apiResult = await response.json();
+                    
+                    if (apiResult.success) {
+                        log(`✅ API returned ${apiResult.data.length} rent properties`);
+                        log(`Total after filtering: ${apiResult.pagination.total}`);
+                        
+                        if (apiResult.data.length > 0) {
+                            log(`First rent property from API: "${apiResult.data[0].title}"`);
+                        }
+                    } else {
+                        log(`❌ API error: ${apiResult.error}`);
+                    }
+                } catch (error) {
+                    log(`❌ API call failed: ${error.message}`);
+                }
+                
+                log('\n✅ Diagnosis complete!');
+                
+            } catch (error) {
+                log(`❌ Debug failed: ${error.message}`);
+            }
+        }
+
+        document.getElementById('debug').addEventListener('click', debugRentProperties);
+    </script>
+</body>
+</html>

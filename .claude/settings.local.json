@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(npm install:*)",
+      "Bash(npm audit:*)",
+      "Bash(test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(curl:*)",
+      "Bash(dir /b \"E:\\\\naija\")",
+      "Bash(del \"e:\\\\naija\\\\src\\\\app\\\\favicon.ico\")",
+      "Bash(copy \"C:\\\\Users\\\\DELL\\\\Downloads\\\\ChatGPT Image Jan 26, 2026, 10_39_59 AM.png\" \"e:\\\\naija\\\\public\\\\nijahomzs-logo.png\" /Y)",
+      "Bash(copy \"C:\\\\Users\\\\DELL\\\\Downloads\\\\ChatGPT Image Jan 26, 2026, 02_34_08 PM.png\" \"e:\\\\naija\\\\public\\\\favicon.png\")",
+      "Bash(npm run build:*)",
+      "Bash(node -e:*)",
+      "Bash(npm run dev:*)",
+      "Bash(python:*)",
+      "Bash(npx @playwright/mcp --help)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_snapshot",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(if exist nul echo \"nul exists\")",
+      "Bash(git -C E:/naija rm --cached:*)",
+      "Bash(git -C E:/naija add -A -- . ':!nul')"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

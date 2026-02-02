@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>View All Properties - Simple</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .property { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }
+        .property h3 { margin-top: 0; color: #333; }
+        .property-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+        .property-info span { padding: 5px; background: #f5f5f5; border-radius: 3px; }
+        .images { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+        .images img { width: 100px; height: 100px; object-fit: cover; border-radius: 5px; }
+        .status { margin: 5px 0; }
+        .status.active { color: green; }
+        .status.undefined { color: orange; }
+        .status.inactive { color: red; }
+        #loading { text-align: center; padding: 20px; }
+        #stats { background: #f0f0f0; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .filter-bar { background: #e9e9e9; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+        .filter-bar select, .filter-bar input { margin: 5px; padding: 5px; }
+    </style>
+</head>
+<body>
+    <h1>All Properties Viewer</h1>
+    
+    <div id="stats">
+        <strong>Statistics:</strong> Loading...
+    </div>
+
+    <div class="filter-bar">
+        <label>Filter by Listing Type:</label>
+        <select id="listingTypeFilter">
+            <option value="">All</option>
+            <option value="rent">Rent</option>
+            <option value="sale">Sale</option>
+        </select>
+        
+        <label>Property Type:</label>
+        <select id="propertyTypeFilter">
+            <option value="">All</option>
+            <option value="apartment">Apartment</option>
+            <option value="house">House</option>
+            <option value="land">Land</option>
+            <option value="commercial">Commercial</option>
+        </select>
+        
+        <label>Status:</label>
+        <select id="statusFilter">
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="undefined">Undefined</option>
+            <option value="null">Null</option>
+        </select>
+        
+        <button onclick="applyFilters()">Apply Filters</button>
+        <button onclick="loadAllProperties()">Reload All</button>
+    </div>
+
+    <div id="loading">Loading properties...</div>
+    <div id="properties"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+        import { getFirestore, collection, getDocs, query, orderBy } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
+
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+            authDomain: "nijahomzs-1ead3.firebaseapp.com",
+            projectId: "nijahomzs-1ead3",
+            storageBucket: "nijahomzs-1ead3.firebasestorage.app",
+            messagingSenderId: "495544413710",
+            appId: "1:495544413710:web:32c35206f5dfef2cedd65f"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let allProperties = [];
+
+        function showStats(properties) {
+            const stats = {
+                total: properties.length,
+                rent: properties.filter(p => p.listingType === 'rent').length,
+                sale: properties.filter(p => p.listingType === 'sale').length,
+                active: properties.filter(p => p.status === 'active').length,
+                undefined: properties.filter(p => p.status === undefined || p.status === 'undefined').length,
+                apartment: properties.filter(p => p.propertyType === 'apartment').length,
+                house: properties.filter(p => p.propertyType === 'house').length,
+                land: properties.filter(p => p.propertyType === 'land').length,
+                commercial: properties.filter(p => p.propertyType === 'commercial').length
+            };
+
+            document.getElementById('stats').innerHTML = `
+                <strong>Statistics:</strong><br>
+                Total: ${stats.total} properties<br>
+                Listing Types: ${stats.rent} rent, ${stats.sale} sale<br>
+                Status: ${stats.active} active, ${stats.undefined} undefined/null<br>
+                Property Types: ${stats.apartment} apartment, ${stats.house} house, ${stats.land} land, ${stats.commercial} commercial
+            `;
+        }
+
+        function displayProperties(properties) {
+            const container = document.getElementById('properties');
+            
+            if (properties.length === 0) {
+                container.innerHTML = '<p>No properties found matching the filters.</p>';
+                return;
+            }
+
+            container.innerHTML = properties.map(property => `
+                <div class="property">
+                    <h3>${property.title || 'No Title'}</h3>
+                    
+                    <div class="property-info">
+                        <span><strong>Listing Type:</strong> ${property.listingType || 'undefined'}</span>
+                        <span><strong>Property Type:</strong> ${property.propertyType || 'undefined'}</span>
+                        <span><strong>Location:</strong> ${property.location || 'undefined'}</span>
+                        <span><strong>Rate:</strong> ${property.rate || 'undefined'}</span>
+                        <span><strong>Price Numeric:</strong> ${property.priceNumeric || 'undefined'}</span>
+                        <span><strong>Bedrooms:</strong> ${property.bedrooms || 'undefined'} (${typeof property.bedrooms})</span>
+                        <span><strong>Bathrooms:</strong> ${property.bathrooms || 'undefined'} (${typeof property.bathrooms})</span>
+                        <span><strong>Phone:</strong> ${property.phoneNumber || 'undefined'}</span>
+                    </div>
+                    
+                    <div class="status ${property.status || 'undefined'}">
+                        <strong>Status:</strong> ${property.status || 'undefined'} (${typeof property.status})
+                    </div>
+                    
+                    <div class="status">
+                        <strong>Created:</strong> ${property.createdAt ? new Date(property.createdAt).toLocaleDateString() : 'undefined'}
+                    </div>
+                    
+                    ${property.imageUrls && property.imageUrls.length > 0 ? `
+                        <div class="images">
+                            ${property.imageUrls.slice(0, 5).map(url => `<img src="${url}" alt="Property Image" onerror="this.style.display='none'">`).join('')}
+                            ${property.imageUrls.length > 5 ? `<span>+${property.imageUrls.length - 5} more images</span>` : ''}
+                        </div>
+                    ` : '<p>No images</p>'}
+                    
+                    <small style="color: #666;">ID: ${property.id}</small>
+                </div>
+            `).join('');
+        }
+
+        async function loadAllProperties() {
+            try {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('properties').innerHTML = '';
+                
+                console.log('Loading all properties...');
+                
+                // Get all properties, ordered by creation date (newest first)
+                const q = query(collection(db, 'properties'), orderBy('createdAt', 'desc'));
+                const snapshot = await getDocs(q);
+                
+                allProperties = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    allProperties.push({
+                        id: doc.id,
+                        ...data,
+                        createdAt: data.createdAt?.toDate().toISOString(),
+                        updatedAt: data.updatedAt?.toDate().toISOString()
+                    });
+                });
+                
+                console.log(`Loaded ${allProperties.length} properties`);
+                
+                showStats(allProperties);
+                displayProperties(allProperties);
+                
+            } catch (error) {
+                console.error('Error loading properties:', error);
+                document.getElementById('properties').innerHTML = `<p style="color: red;">Error loading properties: ${error.message}</p>`;
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function applyFilters() {
+            const listingTypeFilter = document.getElementById('listingTypeFilter').value;
+            const propertyTypeFilter = document.getElementById('propertyTypeFilter').value;
+            const statusFilter = document.getElementById('statusFilter').value;
+
+            let filtered = allProperties.filter(property => {
+                const matchesListingType = !listingTypeFilter || property.listingType === listingTypeFilter;
+                const matchesPropertyType = !propertyTypeFilter || property.propertyType === propertyTypeFilter;
+                
+                let matchesStatus = true;
+                if (statusFilter) {
+                    if (statusFilter === 'undefined') {
+                        matchesStatus = property.status === undefined || property.status === 'undefined';
+                    } else if (statusFilter === 'null') {
+                        matchesStatus = property.status === null;
+                    } else {
+                        matchesStatus = property.status === statusFilter;
+                    }
+                }
+                
+                return matchesListingType && matchesPropertyType && matchesStatus;
+            });
+
+            showStats(filtered);
+            displayProperties(filtered);
+        }
+
+        // Make functions global so buttons can access them
+        window.loadAllProperties = loadAllProperties;
+        window.applyFilters = applyFilters;
+
+        // Auto-load on page load
+        loadAllProperties();
+    </script>
+</body>
+</html>

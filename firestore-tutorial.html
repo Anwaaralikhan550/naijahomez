@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Firestore Learning Tutorial</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            line-height: 1.6;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+        .section { 
+            background: #f5f5f5; 
+            padding: 20px; 
+            margin: 10px 0; 
+            border-radius: 8px; 
+            border-left: 4px solid #007acc;
+        }
+        .form-group { 
+            margin: 10px 0; 
+        }
+        .form-group label { 
+            display: block; 
+            margin-bottom: 5px; 
+            font-weight: bold;
+        }
+        .form-group input, .form-group select, .form-group textarea { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+        }
+        button { 
+            background: #007acc; 
+            color: white; 
+            padding: 10px 20px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            margin: 5px; 
+        }
+        button:hover { 
+            background: #005a99; 
+        }
+        button.danger { 
+            background: #dc3545; 
+        }
+        button.danger:hover { 
+            background: #c82333; 
+        }
+        .property { 
+            background: white; 
+            border: 1px solid #ddd; 
+            padding: 15px; 
+            margin: 10px 0; 
+            border-radius: 5px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .property h3 { 
+            margin-top: 0; 
+            color: #333; 
+        }
+        .property-info { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+            gap: 10px; 
+            margin: 10px 0; 
+        }
+        .property-info span { 
+            background: #f8f9fa; 
+            padding: 5px 8px; 
+            border-radius: 3px; 
+            font-size: 14px;
+        }
+        .status { 
+            padding: 4px 8px; 
+            border-radius: 12px; 
+            font-size: 12px; 
+            font-weight: bold; 
+        }
+        .status.active { 
+            background: #d4edda; 
+            color: #155724; 
+        }
+        .status.undefined { 
+            background: #fff3cd; 
+            color: #856404; 
+        }
+        #log { 
+            background: #2d3748; 
+            color: #e2e8f0; 
+            padding: 15px; 
+            border-radius: 5px; 
+            font-family: 'Courier New', monospace; 
+            font-size: 14px; 
+            max-height: 300px; 
+            overflow-y: auto; 
+            margin: 10px 0;
+        }
+        .stats { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); 
+            gap: 15px; 
+            margin: 20px 0; 
+        }
+        .stat-card { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+            text-align: center;
+        }
+        .stat-number { 
+            font-size: 2em; 
+            font-weight: bold; 
+            color: #007acc; 
+        }
+        .stat-label { 
+            color: #666; 
+            margin-top: 5px; 
+        }
+        .two-column { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr; 
+            gap: 20px; 
+        }
+        @media (max-width: 768px) { 
+            .two-column { 
+                grid-template-columns: 1fr; 
+            } 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔥 Firestore Learning Tutorial</h1>
+        <p>Learn how to view, add, update, and delete data in Firestore with this interactive tutorial.</p>
+
+        <!-- Statistics Dashboard -->
+        <div class="section">
+            <h2>📊 Database Statistics</h2>
+            <button onclick="loadStats()">Refresh Stats</button>
+            <div class="stats" id="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalCount">-</div>
+                    <div class="stat-label">Total Properties</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="rentCount">-</div>
+                    <div class="stat-label">For Rent</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="saleCount">-</div>
+                    <div class="stat-label">For Sale</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="activeCount">-</div>
+                    <div class="stat-label">Active</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="two-column">
+            <!-- Add New Property -->
+            <div class="section">
+                <h2>➕ Add New Property</h2>
+                <form id="propertyForm">
+                    <div class="form-group">
+                        <label>Title:</label>
+                        <input type="text" id="title" placeholder="e.g. 3 bedroom apartment for rent" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Listing Type:</label>
+                        <select id="listingType" required>
+                            <option value="">Select Type</option>
+                            <option value="rent">For Rent</option>
+                            <option value="sale">For Sale</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Property Type:</label>
+                        <select id="propertyType" required>
+                            <option value="">Select Type</option>
+                            <option value="apartment">Apartment</option>
+                            <option value="house">House</option>
+                            <option value="land">Land</option>
+                            <option value="commercial">Commercial</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Location:</label>
+                        <input type="text" id="location" placeholder="e.g. Lekki, Lagos" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Price (₦):</label>
+                        <input type="number" id="priceNumeric" placeholder="e.g. 5000000" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Bedrooms:</label>
+                        <input type="number" id="bedrooms" placeholder="e.g. 3" min="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Bathrooms:</label>
+                        <input type="number" id="bathrooms" placeholder="e.g. 2" min="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Phone Number:</label>
+                        <input type="tel" id="phoneNumber" placeholder="e.g. 08012345678">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Description:</label>
+                        <textarea id="description" rows="3" placeholder="Brief description of the property..."></textarea>
+                    </div>
+                    
+                    <button type="submit">Add Property</button>
+                    <button type="button" onclick="clearForm()">Clear Form</button>
+                </form>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="section">
+                <h2>⚡ Quick Actions</h2>
+                
+                <h3>🔍 View Data</h3>
+                <button onclick="loadAllProperties()">Load All Properties</button>
+                <button onclick="loadRentProperties()">Load Rent Only</button>
+                <button onclick="loadSaleProperties()">Load Sale Only</button>
+                <button onclick="loadLatest(5)">Load Latest 5</button>
+                
+                <h3>🧹 Batch Operations</h3>
+                <button onclick="fixMissingStatus()">Fix Missing Status</button>
+                <button onclick="addSampleData()">Add Sample Data</button>
+                <button class="danger" onclick="deleteTestProperties()">Delete Test Properties</button>
+                
+                <h3>📈 Analysis</h3>
+                <button onclick="findDuplicates()">Find Duplicates</button>
+                <button onclick="validateData()">Validate Data</button>
+                <button onclick="exportToJSON()">Export to JSON</button>
+            </div>
+        </div>
+
+        <!-- Properties List -->
+        <div class="section">
+            <h2>📋 Properties List</h2>
+            <div style="margin-bottom: 15px;">
+                <button onclick="loadAllProperties()">Refresh List</button>
+                <span style="margin-left: 20px;">Filter by:</span>
+                <select id="filterType" onchange="applyFilter()">
+                    <option value="">All Types</option>
+                    <option value="rent">Rent</option>
+                    <option value="sale">Sale</option>
+                </select>
+                <select id="filterStatus" onchange="applyFilter()">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="undefined">Undefined</option>
+                </select>
+            </div>
+            <div id="propertiesList">
+                <p>Click "Load All Properties" to view data...</p>
+            </div>
+        </div>
+
+        <!-- Console Log -->
+        <div class="section">
+            <h2>🖥️ Console Output</h2>
+            <button onclick="clearLog()">Clear Log</button>
+            <div id="log">Welcome to Firestore Tutorial! Click any button to start...</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+        import { 
+            getFirestore, 
+            collection, 
+            getDocs, 
+            addDoc, 
+            updateDoc,
+            deleteDoc,
+            doc, 
+            query, 
+            orderBy, 
+            where,
+            limit 
+        } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
+
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+            authDomain: "nijahomzs-1ead3.firebaseapp.com",
+            projectId: "nijahomzs-1ead3",
+            storageBucket: "nijahomzs-1ead3.firebasestorage.app",
+            messagingSenderId: "495544413710",
+            appId: "1:495544413710:web:32c35206f5dfef2cedd65f"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let allProperties = [];
+
+        // Logging function
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const color = type === 'error' ? '#ff6b6b' : type === 'success' ? '#51cf66' : '#74c0fc';
+            logDiv.innerHTML += `<div style="color: ${color};">[${timestamp}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        // Clear log
+        window.clearLog = function() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        // Load statistics
+        window.loadStats = async function() {
+            try {
+                log('📊 Loading statistics...');
+                const snapshot = await getDocs(collection(db, 'properties'));
+                
+                let stats = { total: 0, rent: 0, sale: 0, active: 0, undefined: 0 };
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    stats.total++;
+                    if (data.listingType === 'rent') stats.rent++;
+                    if (data.listingType === 'sale') stats.sale++;
+                    if (data.status === 'active') stats.active++;
+                    if (!data.status || data.status === 'undefined') stats.undefined++;
+                });
+                
+                document.getElementById('totalCount').textContent = stats.total;
+                document.getElementById('rentCount').textContent = stats.rent;
+                document.getElementById('saleCount').textContent = stats.sale;
+                document.getElementById('activeCount').textContent = stats.active;
+                
+                log(`✅ Stats loaded: ${stats.total} total, ${stats.rent} rent, ${stats.sale} sale`, 'success');
+            } catch (error) {
+                log(`❌ Error loading stats: ${error.message}`, 'error');
+            }
+        }
+
+        // Add new property
+        document.getElementById('propertyForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            try {
+                log('➕ Adding new property...');
+                
+                const propertyData = {
+                    title: document.getElementById('title').value,
+                    listingType: document.getElementById('listingType').value,
+                    propertyType: document.getElementById('propertyType').value,
+                    location: document.getElementById('location').value,
+                    priceNumeric: parseInt(document.getElementById('priceNumeric').value),
+                    rate: `₦${parseInt(document.getElementById('priceNumeric').value).toLocaleString()}`,
+                    bedrooms: parseInt(document.getElementById('bedrooms').value) || 0,
+                    bathrooms: parseInt(document.getElementById('bathrooms').value) || 0,
+                    phoneNumber: document.getElementById('phoneNumber').value,
+                    description: document.getElementById('description').value,
+                    status: 'active',
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                    source: 'tutorial'
+                };
+                
+                const docRef = await addDoc(collection(db, 'properties'), propertyData);
+                log(`✅ Property added successfully! ID: ${docRef.id}`, 'success');
+                
+                clearForm();
+                loadStats();
+                
+            } catch (error) {
+                log(`❌ Error adding property: ${error.message}`, 'error');
+            }
+        });
+
+        // Clear form
+        window.clearForm = function() {
+            document.getElementById('propertyForm').reset();
+            log('🧹 Form cleared');
+        }
+
+        // Load all properties
+        window.loadAllProperties = async function() {
+            try {
+                log('📋 Loading all properties...');
+                const q = query(collection(db, 'properties'), orderBy('createdAt', 'desc'));
+                const snapshot = await getDocs(q);
+                
+                allProperties = [];
+                snapshot.forEach(doc => {
+                    allProperties.push({ id: doc.id, ...doc.data() });
+                });
+                
+                displayProperties(allProperties);
+                log(`✅ Loaded ${allProperties.length} properties`, 'success');
+                
+            } catch (error) {
+                log(`❌ Error loading properties: ${error.message}`, 'error');
+            }
+        }
+
+        // Load rent properties only
+        window.loadRentProperties = async function() {
+            try {
+                log('🏠 Loading rent properties...');
+                const q = query(
+                    collection(db, 'properties'), 
+                    where('listingType', '==', 'rent'),
+                    orderBy('createdAt', 'desc')
+                );
+                const snapshot = await getDocs(q);
+                
+                const properties = [];
+                snapshot.forEach(doc => {
+                    properties.push({ id: doc.id, ...doc.data() });
+                });
+                
+                displayProperties(properties);
+                log(`✅ Loaded ${properties.length} rent properties`, 'success');
+                
+            } catch (error) {
+                log(`❌ Error loading rent properties: ${error.message}`, 'error');
+            }
+        }
+
+        // Load sale properties only
+        window.loadSaleProperties = async function() {
+            try {
+                log('💰 Loading sale properties...');
+                const q = query(
+                    collection(db, 'properties'), 
+                    where('listingType', '==', 'sale'),
+                    orderBy('createdAt', 'desc')
+                );
+                const snapshot = await getDocs(q);
+                
+                const properties = [];
+                snapshot.forEach(doc => {
+                    properties.push({ id: doc.id, ...doc.data() });
+                });
+                
+                displayProperties(properties);
+                log(`✅ Loaded ${properties.length} sale properties`, 'success');
+                
+            } catch (error) {
+                log(`❌ Error loading sale properties: ${error.message}`, 'error');
+            }
+        }
+
+        // Load latest N properties
+        window.loadLatest = async function(count) {
+            try {
+                log(`📅 Loading latest ${count} properties...`);
+                const q = query(
+                    collection(db, 'properties'), 
+                    orderBy('createdAt', 'desc'),
+                    limit(count)
+                );
+                const snapshot = await getDocs(q);
+                
+                const properties = [];
+                snapshot.forEach(doc => {
+                    properties.push({ id: doc.id, ...doc.data() });
+                });
+                
+                displayProperties(properties);
+                log(`✅ Loaded ${properties.length} latest properties`, 'success');
+                
+            } catch (error) {
+                log(`❌ Error loading latest properties: ${error.message}`, 'error');
+            }
+        }
+
+        // Display properties
+        function displayProperties(properties) {
+            const container = document.getElementById('propertiesList');
+            
+            if (properties.length === 0) {
+                container.innerHTML = '<p>No properties found.</p>';
+                return;
+            }
+
+            container.innerHTML = properties.map(property => `
+                <div class="property">
+                    <h3>${property.title || 'No Title'}</h3>
+                    
+                    <div class="property-info">
+                        <span><strong>Type:</strong> ${property.listingType || 'undefined'}</span>
+                        <span><strong>Property:</strong> ${property.propertyType || 'undefined'}</span>
+                        <span><strong>Location:</strong> ${property.location || 'undefined'}</span>
+                        <span><strong>Price:</strong> ${property.rate || property.priceNumeric || 'undefined'}</span>
+                        <span><strong>Bedrooms:</strong> ${property.bedrooms || 0}</span>
+                        <span><strong>Bathrooms:</strong> ${property.bathrooms || 0}</span>
+                    </div>
+                    
+                    <div style="margin: 10px 0;">
+                        <span class="status ${property.status || 'undefined'}">
+                            Status: ${property.status || 'undefined'}
+                        </span>
+                        <span style="margin-left: 15px; color: #666; font-size: 14px;">
+                            Created: ${property.createdAt ? new Date(property.createdAt.toDate()).toLocaleDateString() : 'unknown'}
+                        </span>
+                    </div>
+                    
+                    <div style="margin-top: 10px;">
+                        <button onclick="updateProperty('${property.id}')">Update</button>
+                        <button onclick="duplicateProperty('${property.id}')">Duplicate</button>
+                        <button class="danger" onclick="deleteProperty('${property.id}')">Delete</button>
+                    </div>
+                    
+                    <small style="color: #999;">ID: ${property.id}</small>
+                </div>
+            `).join('');
+        }
+
+        // Update property status
+        window.updateProperty = async function(propertyId) {
+            try {
+                const newStatus = prompt('Enter new status (active/inactive):');
+                if (!newStatus) return;
+                
+                log(`🔄 Updating property ${propertyId}...`);
+                
+                await updateDoc(doc(db, 'properties', propertyId), {
+                    status: newStatus,
+                    updatedAt: new Date()
+                });
+                
+                log(`✅ Property ${propertyId} updated successfully`, 'success');
+                loadAllProperties(); // Refresh list
+                
+            } catch (error) {
+                log(`❌ Error updating property: ${error.message}`, 'error');
+            }
+        }
+
+        // Delete property
+        window.deleteProperty = async function(propertyId) {
+            if (!confirm('Are you sure you want to delete this property?')) return;
+            
+            try {
+                log(`🗑️ Deleting property ${propertyId}...`);
+                
+                await deleteDoc(doc(db, 'properties', propertyId));
+                
+                log(`✅ Property ${propertyId} deleted successfully`, 'success');
+                loadAllProperties(); // Refresh list
+                loadStats(); // Refresh stats
+                
+            } catch (error) {
+                log(`❌ Error deleting property: ${error.message}`, 'error');
+            }
+        }
+
+        // Duplicate property
+        window.duplicateProperty = async function(propertyId) {
+            try {
+                log(`📋 Duplicating property ${propertyId}...`);
+                
+                const property = allProperties.find(p => p.id === propertyId);
+                if (!property) {
+                    log(`❌ Property not found`, 'error');
+                    return;
+                }
+                
+                const duplicateData = {
+                    ...property,
+                    title: `${property.title} (Copy)`,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                    source: 'tutorial-duplicate'
+                };
+                delete duplicateData.id; // Remove the ID so Firestore creates a new one
+                
+                const docRef = await addDoc(collection(db, 'properties'), duplicateData);
+                log(`✅ Property duplicated successfully! New ID: ${docRef.id}`, 'success');
+                
+                loadAllProperties(); // Refresh list
+                loadStats(); // Refresh stats
+                
+            } catch (error) {
+                log(`❌ Error duplicating property: ${error.message}`, 'error');
+            }
+        }
+
+        // Add sample data
+        window.addSampleData = async function() {
+            if (!confirm('Add 3 sample properties?')) return;
+            
+            try {
+                log('📝 Adding sample data...');
+                
+                const sampleProperties = [
+                    {
+                        title: "3 bedroom apartment for rent",
+                        listingType: "rent",
+                        propertyType: "apartment", 
+                        location: "Victoria Island, Lagos",
+                        priceNumeric: 2500000,
+                        rate: "₦2,500,000",
+                        bedrooms: 3,
+                        bathrooms: 2,
+                        phoneNumber: "08012345678",
+                        description: "Modern apartment with great amenities",
+                        status: "active",
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                        source: "tutorial-sample"
+                    },
+                    {
+                        title: "5 bedroom duplex for sale",
+                        listingType: "sale",
+                        propertyType: "house",
+                        location: "Lekki, Lagos",
+                        priceNumeric: 50000000,
+                        rate: "₦50,000,000",
+                        bedrooms: 5,
+                        bathrooms: 4,
+                        phoneNumber: "08087654321",
+                        description: "Luxury duplex in prime location",
+                        status: "active",
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                        source: "tutorial-sample"
+                    },
+                    {
+                        title: "Commercial land for sale",
+                        listingType: "sale",
+                        propertyType: "land",
+                        location: "Abuja",
+                        priceNumeric: 100000000,
+                        rate: "₦100,000,000",
+                        bedrooms: 0,
+                        bathrooms: 0,
+                        phoneNumber: "08011223344",
+                        description: "Prime commercial land in city center",
+                        status: "active",
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                        source: "tutorial-sample"
+                    }
+                ];
+                
+                for (const property of sampleProperties) {
+                    await addDoc(collection(db, 'properties'), property);
+                }
+                
+                log(`✅ Added ${sampleProperties.length} sample properties`, 'success');
+                loadAllProperties();
+                loadStats();
+                
+            } catch (error) {
+                log(`❌ Error adding sample data: ${error.message}`, 'error');
+            }
+        }
+
+        // Fix missing status
+        window.fixMissingStatus = async function() {
+            if (!confirm('Fix all properties with missing status?')) return;
+            
+            try {
+                log('🔧 Fixing missing status fields...');
+                
+                const snapshot = await getDocs(collection(db, 'properties'));
+                let fixedCount = 0;
+                
+                for (const docSnap of snapshot.docs) {
+                    const data = docSnap.data();
+                    if (!data.status || data.status === 'undefined') {
+                        await updateDoc(docSnap.ref, {
+                            status: 'active',
+                            updatedAt: new Date()
+                        });
+                        fixedCount++;
+                    }
+                }
+                
+                log(`✅ Fixed ${fixedCount} properties with missing status`, 'success');
+                loadAllProperties();
+                loadStats();
+                
+            } catch (error) {
+                log(`❌ Error fixing status: ${error.message}`, 'error');
+            }
+        }
+
+        // Delete test properties
+        window.deleteTestProperties = async function() {
+            if (!confirm('Delete all properties created by this tutorial?')) return;
+            
+            try {
+                log('🗑️ Deleting tutorial properties...');
+                
+                const q = query(collection(db, 'properties'), where('source', 'in', ['tutorial', 'tutorial-sample', 'tutorial-duplicate']));
+                const snapshot = await getDocs(q);
+                
+                let deletedCount = 0;
+                for (const docSnap of snapshot.docs) {
+                    await deleteDoc(docSnap.ref);
+                    deletedCount++;
+                }
+                
+                log(`✅ Deleted ${deletedCount} tutorial properties`, 'success');
+                loadAllProperties();
+                loadStats();
+                
+            } catch (error) {
+                log(`❌ Error deleting test properties: ${error.message}`, 'error');
+            }
+        }
+
+        // Apply filters
+        window.applyFilter = function() {
+            const typeFilter = document.getElementById('filterType').value;
+            const statusFilter = document.getElementById('filterStatus').value;
+            
+            let filtered = allProperties.filter(property => {
+                const matchesType = !typeFilter || property.listingType === typeFilter;
+                const matchesStatus = !statusFilter || 
+                    (statusFilter === 'undefined' && (!property.status || property.status === 'undefined')) ||
+                    (statusFilter === 'active' && property.status === 'active');
+                
+                return matchesType && matchesStatus;
+            });
+            
+            displayProperties(filtered);
+            log(`🔍 Filtered: ${filtered.length} properties match criteria`);
+        }
+
+        // Export to JSON
+        window.exportToJSON = function() {
+            if (allProperties.length === 0) {
+                log('❌ No properties to export. Load data first.', 'error');
+                return;
+            }
+            
+            const dataStr = JSON.stringify(allProperties, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(dataBlob);
+            link.download = 'properties-export.json';
+            link.click();
+            
+            log(`✅ Exported ${allProperties.length} properties to JSON`, 'success');
+        }
+
+        // Find duplicates
+        window.findDuplicates = function() {
+            log('🔍 Searching for duplicate titles...');
+            
+            const titleCounts = {};
+            allProperties.forEach(property => {
+                const title = property.title || 'No Title';
+                titleCounts[title] = (titleCounts[title] || 0) + 1;
+            });
+            
+            const duplicates = Object.entries(titleCounts).filter(([title, count]) => count > 1);
+            
+            if (duplicates.length > 0) {
+                log(`⚠️ Found ${duplicates.length} duplicate titles:`, 'error');
+                duplicates.forEach(([title, count]) => {
+                    log(`  - "${title}" appears ${count} times`);
+                });
+            } else {
+                log('✅ No duplicate titles found', 'success');
+            }
+        }
+
+        // Validate data
+        window.validateData = function() {
+            log('🔍 Validating data quality...');
+            
+            let issues = [];
+            
+            allProperties.forEach(property => {
+                if (!property.title) issues.push(`Property ${property.id}: Missing title`);
+                if (!property.listingType) issues.push(`Property ${property.id}: Missing listingType`);
+                if (!property.propertyType) issues.push(`Property ${property.id}: Missing propertyType`);
+                if (!property.priceNumeric) issues.push(`Property ${property.id}: Missing priceNumeric`);
+                if (!property.status) issues.push(`Property ${property.id}: Missing status`);
+            });
+            
+            if (issues.length > 0) {
+                log(`⚠️ Found ${issues.length} data quality issues:`, 'error');
+                issues.slice(0, 10).forEach(issue => log(`  - ${issue}`));
+                if (issues.length > 10) {
+                    log(`  ... and ${issues.length - 10} more issues`);
+                }
+            } else {
+                log('✅ All data looks good!', 'success');
+            }
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            log('🚀 Firestore Tutorial loaded successfully!');
+            log('💡 Try adding a new property or loading existing data');
+            loadStats();
+        });
+    </script>
+</body>
+</html>

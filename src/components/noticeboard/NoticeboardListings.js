@@ -1,0 +1,592 @@
+'use client';
+import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
+import { MapPin, Clock, Search as SearchIcon, Filter, X, Loader2, Tag } from 'lucide-react';
+import apiService from '@/services/api';
+import { slugify } from '@/utils/slugify';
+import { withProximityFilter } from '@/utils/withProximityFilter';
+import { useGeolocationContext } from '@/context/GeolocationContext';
+import DistanceBadge from '@/components/shared/DistanceBadge';
+import { useSearchRecommendations } from '@/hooks/useSearchRecommendations';
+import SearchDropdown from '@/components/shared/SearchDropdown';
+
+function NoticeboardListings(props) {
+  // Get proximity data and state from props and context
+  const { data: proximityFilteredData, isLoading: isProximityLoading } = props;
+  const { nearbyEnabled, searchRadius } = useGeolocationContext();
+  
+  // Search recommendations hook
+  const {
+    isOpen: isDropdownOpen,
+    recommendations,
+    isLoading: isRecommendationsLoading,
+    handleFocus: handleSearchFocus,
+    handleClose: handleDropdownClose,
+    dropdownRef
+  } = useSearchRecommendations('noticeboard');
+  
+  // Local state for the component's own data management
+  const [filteredNotices, setFilteredNotices] = useState([]);
+  const [displayCount, setDisplayCount] = useState(12);
+  const [isLocalLoading, setIsLocalLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [hasMoreLocal, setHasMoreLocal] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState({
+    noticeType: '',
+    datePosted: '',
+    location: '',
+    sortBy: 'createdAt',
+    sortOrder: 'desc'
+  });
+  const [originalData, setOriginalData] = useState([]);
+  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  
+  // Search input ref for dropdown positioning
+  const searchInputRef = useRef(null);
+  
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        searchInputRef.current &&
+        !searchInputRef.current.contains(event.target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target)
+      ) {
+        handleDropdownClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [handleDropdownClose]);
+
+  // Initial load
+  useEffect(() => {
+    loadNotices(true);
+  }, []);
+
+  const loadNotices = async (reset = false) => {
+    if (reset) {
+      setFilteredNotices([]);
+      setDisplayCount(12);
+    }
+
+    setIsLocalLoading(true);
+    setError(null);
+
+    try {
+      // Use API service to get notices
+      const response = await apiService.getNotices({
+        limit: 50,
+        sortBy: filters.sortBy,
+        sortOrder: filters.sortOrder,
+        ...(filters.noticeType && { noticeType: filters.noticeType }),
+        ...(searchQuery.trim() && { search: searchQuery.trim() })
+      });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to load notices');
+      }
+      
+      let allNotices = (response.data || []).map(notice => ({
+        ...notice,
+        slug: notice.slug || slugify(`${notice.title}-${notice.id}`)
+      }));
+      
+      // Apply date posted filter
+      if (filters.datePosted) {
+        const now = new Date();
+        let filterDate = new Date();
+        
+        switch(filters.datePosted) {
+          case 'today':
+            filterDate.setHours(0, 0, 0, 0);
+            break;
+          case 'week':
+            filterDate.setDate(now.getDate() - 7);
+            break;
+          case 'month':
+            filterDate.setMonth(now.getMonth() - 1);
+            break;
+          default:
+            filterDate = null;
+        }
+        
+        if (filterDate) {
+          allNotices = allNotices.filter(notice => {
+            const noticeDate = notice.createdAt?.toDate ? 
+              notice.createdAt.toDate() : 
+              new Date(notice.createdAt);
+            return noticeDate >= filterDate;
+          });
+        }
+      }
+      
+      // Apply location filter
+      if (filters.location) {
+        const locationLower = filters.location.toLowerCase();
+        allNotices = allNotices.filter(notice => 
+          notice.location && 
+          notice.location.toLowerCase().includes(locationLower)
+        );
+      }
+      
+      // Filter out notices without images
+      const validNotices = allNotices.filter(
+        notice => notice.imageUrls && notice.imageUrls.length > 0
+      );
+      
+      // Store the original filtered results (before pagination)
+      setOriginalData(validNotices);
+      
+      // Apply pagination
+      setFilteredNotices(validNotices.slice(0, displayCount));
+      
+      // Check if there are more notices to load
+      setHasMoreLocal(validNotices.length > displayCount);
+    } catch (error) {
+      console.error('Error loading notices:', error);
+      setError('Failed to load notices. Please try again later.');
+    } finally {
+      setIsLocalLoading(false);
+    }
+  };
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilters(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const resetFilters = () => {
+    setFilters({
+      noticeType: '',
+      datePosted: '',
+      location: '',
+      sortBy: 'createdAt',
+      sortOrder: 'desc'
+    });
+    setSearchQuery('');
+    loadNotices(true);
+  };
+
+  // Local pagination for when proximity filter is disabled
+  const loadMoreLocal = () => {
+    if (!isLocalLoading) {
+      // Increase display count
+      const newDisplayCount = displayCount + 12;
+      setDisplayCount(newDisplayCount);
+      
+      // Update displayed items
+      setFilteredNotices(originalData.slice(0, newDisplayCount));
+      
+      // Check if there are more items to load
+      setHasMoreLocal(originalData.length > newDisplayCount);
+    }
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    loadNotices(true);
+  };
+
+  const applyFilters = () => {
+    loadNotices(true);
+  };
+
+  const removeFilter = (filterName) => {
+    setFilters(prev => ({ ...prev, [filterName]: '' }));
+  };
+
+  // Notice type options
+  const noticeTypes = [
+    { value: '', label: 'All Types' },
+    { value: 'announcement', label: 'Announcement' },
+    { value: 'event', label: 'Event' },
+    { value: 'job', label: 'Job Opportunity' },
+    { value: 'lost_found', label: 'Lost & Found' },
+    { value: 'community', label: 'Community Notice' },
+    { value: 'other', label: 'Other' }
+  ];
+
+  // Date posted options
+  const datePostedOptions = [
+    { value: '', label: 'Any Time' },
+    { value: 'today', label: 'Today' },
+    { value: 'week', label: 'This Week' },
+    { value: 'month', label: 'This Month' }
+  ];
+
+  // Sort options
+  const sortOptions = [
+    { value: 'createdAt', label: 'Newest First', order: 'desc' },
+    { value: 'createdAt', label: 'Oldest First', order: 'asc' },
+    { value: 'title', label: 'Title (A-Z)', order: 'asc' },
+    { value: 'title', label: 'Title (Z-A)', order: 'desc' }
+  ];
+
+  return (
+    <div className="bg-gray-50 min-h-screen">
+      <div className="bg-white shadow-sm">
+        <div className="max-w-6xl mx-auto px-4 py-8">
+          {/* Title */}
+          <h1 className="text-3xl font-bold text-blue-900 mb-6">
+            Community Noticeboard
+          </h1>
+
+          {/* Mobile Controls */}
+          <div className="flex md:hidden items-center gap-2 mb-4">
+            <button
+              onClick={() => setIsFiltersOpen(!isFiltersOpen)}
+              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              title="Filters"
+            >
+              <Filter size={20} />
+            </button>
+          </div>
+
+          {/* Search bar */}
+          <form onSubmit={handleSearch} className="mb-6 flex gap-2">
+            <div className="relative flex-grow" ref={searchInputRef}>
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <SearchIcon className="text-gray-400" size={20} />
+              </div>
+              <input
+                type="text"
+                placeholder="Search notices..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={handleSearchFocus}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <SearchDropdown
+                isOpen={isDropdownOpen}
+                recommendations={recommendations}
+                isLoading={isRecommendationsLoading}
+                onClose={handleDropdownClose}
+                searchQuery={searchQuery}
+                dropdownRef={dropdownRef}
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={isLocalLoading}
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300"
+            >
+              {isLocalLoading ? 'Searching...' : 'Search'}
+            </button>
+          </form>
+
+          {/* Filters Section */}
+          <div className={`
+            md:block
+            ${isFiltersOpen ? 'block' : 'hidden'}
+          `}>
+            <div className="grid md:grid-cols-4 gap-4 mb-6">
+              <select
+                name="noticeType"
+                value={filters.noticeType}
+                onChange={handleFilterChange}
+                className="p-2 border rounded-lg"
+              >
+                {noticeTypes.map(type => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                name="datePosted"
+                value={filters.datePosted}
+                onChange={handleFilterChange}
+                className="p-2 border rounded-lg"
+              >
+                {datePostedOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                name="location"
+                placeholder="Filter by location"
+                value={filters.location}
+                onChange={handleFilterChange}
+                className="p-2 border rounded-lg"
+              />
+
+              <div className="flex gap-2">
+                <button
+                  onClick={applyFilters}
+                  className="flex-1 p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  Apply Filters
+                </button>
+                <button
+                  onClick={resetFilters}
+                  className="p-2 text-blue-500 hover:text-blue-600"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Sorting Options */}
+          <div className="flex justify-end mb-6">
+            <select
+              value={`${filters.sortBy}${filters.sortOrder}`}
+              onChange={(e) => {
+                const value = e.target.value;
+                const sortOption = sortOptions.find(option => option.value + option.order === value);
+                
+                if (sortOption) {
+                  setFilters(prev => ({
+                    ...prev,
+                    sortBy: sortOption.value,
+                    sortOrder: sortOption.order
+                  }));
+                  
+                  loadNotices(true);
+                }
+              }}
+              className="p-2 border rounded-lg bg-gray-50 text-gray-900 border-gray-300"
+            >
+              {sortOptions.map((option) => (
+                <option key={option.value + option.order} value={option.value + option.order}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Active Filters */}
+      {(filters.noticeType || filters.datePosted || filters.location || searchQuery) && (
+        <div className="max-w-6xl mx-auto px-4 py-4">
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-gray-600">Active Filters:</span>
+            {searchQuery && (
+              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-2">
+                Search: {searchQuery}
+                <button 
+                  onClick={() => { setSearchQuery(''); loadNotices(true); }} 
+                  className="hover:text-blue-600"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+            {filters.noticeType && (
+              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-2">
+                Type: {noticeTypes.find(t => t.value === filters.noticeType)?.label}
+                <button 
+                  onClick={() => { 
+                    setFilters(prev => ({ ...prev, noticeType: '' })); 
+                    loadNotices(true);
+                  }} 
+                  className="hover:text-blue-600"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+            {filters.datePosted && (
+              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-2">
+                Posted: {datePostedOptions.find(d => d.value === filters.datePosted)?.label}
+                <button 
+                  onClick={() => {
+                    setFilters(prev => ({ ...prev, datePosted: '' }));
+                    loadNotices(true);
+                  }}
+                  className="hover:text-blue-600"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+            {filters.location && (
+              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-2">
+                Location: {filters.location}
+                <button 
+                  onClick={() => {
+                    setFilters(prev => ({ ...prev, location: '' }));
+                    loadNotices(true);
+                  }}
+                  className="hover:text-blue-600"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+            <button
+              onClick={resetFilters}
+              className="text-blue-500 hover:text-blue-600 text-sm ml-2"
+            >
+              Clear All
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Notices Grid */}
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* Loading State - use the appropriate loading indicator based on whether proximity is enabled */}
+        {(nearbyEnabled ? isProximityLoading : isLocalLoading) ? (
+          <div className="grid place-items-center min-h-[50vh]">
+            <div className="text-center">
+              <Loader2 className="w-16 h-16 animate-spin text-blue-500 mx-auto mb-4" />
+              <p className="text-gray-600">
+                {nearbyEnabled ? 'Finding notices near you...' : 'Loading notices...'}
+              </p>
+              {nearbyEnabled && (
+                <p className="text-sm text-gray-500 mt-2">
+                  Searching within {searchRadius}km radius
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            {error ? (
+              <div className="text-center py-12 bg-red-50 rounded-lg">
+                <p className="text-red-600 mb-4">{error}</p>
+                <button
+                  onClick={() => loadNotices(true)}
+                  className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                >
+                  Try Again
+                </button>
+              </div>
+            ) : (nearbyEnabled ? proximityFilteredData.length === 0 : filteredNotices.length === 0) ? (
+              <div className="text-center py-12 bg-gray-100 rounded-lg">
+                <p className="text-gray-600 mb-4">
+                  {nearbyEnabled 
+                    ? 'No notices found near your location' 
+                    : 'No notices found matching your criteria'}
+                </p>
+                <button
+                  onClick={resetFilters}
+                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Add Post Notice button */}
+                <div className="mb-6 flex justify-end">
+                  <Link
+                    href="/dashboard?tab=post-ad&type=notice"
+                    className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                    Post a Notice
+                  </Link>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-6">
+                  {/* Map over the appropriate data source based on whether proximity is enabled */}
+                  {(nearbyEnabled ? proximityFilteredData : filteredNotices).map((notice) => (
+                    <Link 
+                      key={notice.id}
+                      href={`/noticeboard/${notice.slug}`}
+                      className="block group"
+                    >
+                      <div className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                        <div className="relative">
+                          <img
+                            src={notice.imageUrls[0]}
+                            alt={notice.title}
+                            className="w-full h-48 object-cover"
+                            loading="lazy"
+                          />
+                          {notice.noticeType && (
+                            <span className="absolute top-2 right-2 bg-blue-500 text-white px-2 py-1 rounded-full text-sm">
+                              {noticeTypes.find(t => t.value === notice.noticeType)?.label || notice.noticeType}
+                            </span>
+                          )}
+                          
+                          {/* Distance Badge - only show when proximity filter is active */}
+                          {nearbyEnabled && (
+                            <DistanceBadge 
+                              item={notice} 
+                              className="absolute bottom-2 right-2"
+                            />
+                          )}
+                        </div>
+                        
+                        <div className="p-4">
+                          <h3 className="text-lg font-semibold text-blue-900 mb-2 line-clamp-2 group-hover:text-blue-600">
+                            {notice.title}
+                          </h3>
+                          
+                          <p className="text-gray-600 mb-3 line-clamp-2">
+                            {notice.description}
+                          </p>
+                          
+                          <div className="flex items-center gap-3 text-sm text-gray-600">
+                            {notice.location && (
+                              <div className="flex items-center">
+                                <MapPin size={16} className="mr-1" />
+                                <span className="truncate">{notice.location}</span>
+                              </div>
+                            )}
+                            <div className="flex items-center">
+                              <Clock size={16} className="mr-1" />
+                              <span>
+                                {notice.createdAt?.seconds
+                                  ? new Date(notice.createdAt.seconds * 1000).toLocaleDateString()
+                                  : notice.createdAt?.toDate
+                                    ? notice.createdAt.toDate().toLocaleDateString()
+                                    : notice.createdAt
+                                      ? new Date(notice.createdAt).toLocaleDateString()
+                                      : ''}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+
+                {/* Load More Button - use the appropriate function and flag based on whether proximity is enabled */}
+                {(nearbyEnabled ? props.hasMore : hasMoreLocal) && (
+                  <div className="text-center mt-8">
+                    <button
+                      onClick={nearbyEnabled ? () => {} : loadMoreLocal}
+                      disabled={(nearbyEnabled ? isProximityLoading : isLocalLoading)}
+                      className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                    >
+                      {(nearbyEnabled ? isProximityLoading : isLocalLoading) ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        'Load More'
+                      )}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Export with HOC
+export default withProximityFilter(NoticeboardListings);
