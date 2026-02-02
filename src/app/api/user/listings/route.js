@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import { verifyAuth } from '@/lib/auth-middleware';
 
 export async function GET(request) {
   try {
+    // Verify authentication first
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    const userId = searchParams.get('userId') || authResult.userId;
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
