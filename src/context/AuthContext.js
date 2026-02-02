@@ -113,6 +113,30 @@ export const AuthProvider = ({ children }) => {
     return () => unsubscribe();
   }, []);
 
+  // Map Firebase error codes to user-friendly messages
+  const getAuthErrorMessage = (error) => {
+    switch (error.code) {
+      case 'auth/invalid-login-credentials':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+        return 'Invalid email or password. Please try again.';
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
+      case 'auth/user-disabled':
+        return 'This account has been disabled. Please contact support.';
+      case 'auth/too-many-requests':
+        return 'Too many failed attempts. Please try again later.';
+      case 'auth/network-request-failed':
+        return 'Network error. Please check your connection and try again.';
+      case 'auth/email-already-in-use':
+        return 'An account with this email already exists.';
+      case 'auth/weak-password':
+        return 'Password is too weak. Please use at least 6 characters.';
+      default:
+        return 'An error occurred. Please try again.';
+    }
+  };
+
   // Sign in with email/password
   const signIn = async (email, password) => {
     try {
@@ -120,7 +144,7 @@ export const AuthProvider = ({ children }) => {
       return { user: result.user, error: null };
     } catch (error) {
       console.error('Sign in error:', error);
-      return { user: null, error: error.message };
+      return { user: null, error: getAuthErrorMessage(error) };
     }
   };
 
@@ -148,7 +172,7 @@ export const AuthProvider = ({ children }) => {
       return { user: result.user, error: null, needsVerification: true };
     } catch (error) {
       console.error('Sign up error:', error);
-      return { user: null, error: error.message, needsVerification: false };
+      return { user: null, error: getAuthErrorMessage(error), needsVerification: false };
     }
   };
 
