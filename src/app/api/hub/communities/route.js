@@ -67,7 +67,7 @@ export async function GET(request) {
 
     // If no specific parameters, return empty array
     console.log('No specific parameters provided, returning empty communities list');
-    return NextResponse.json({ communities: [] });
+    return NextResponse.json({ success: true, communities: [], data: [], pagination: { total: 0 } });
   } catch (error) {
     logger.error('Error in communities API', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
