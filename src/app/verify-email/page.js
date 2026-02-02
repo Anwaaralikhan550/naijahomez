@@ -182,8 +182,8 @@ function VerifyEmailContent() {
             </div>
 
             <div className="pt-4 border-t text-center">
-              <Link 
-                href="/dashboard"
+              <Link
+                href="/"
                 className="text-sm text-gray-500 hover:text-gray-700"
               >
                 Skip for now (verification required for full access)
