@@ -81,6 +81,7 @@ function MarketplaceListings(props) {
       const response = await apiService.getMarketplaceItems({
         limit: 50,
         ...(searchQuery.trim() && { search: searchQuery.trim() }),
+        ...(subcategory && { category: subcategory }),
         sortBy: 'createdAt',
         sortOrder: 'desc'
       });

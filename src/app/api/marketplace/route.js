@@ -65,17 +65,25 @@ export async function GET(request) {
       items = items.slice(0, limit);
     }
     
-    // Apply client-side filters for text search and location
-    if (search || location) {
+    // Apply client-side filters for text search, location, category, and condition
+    if (search || location || category || condition) {
       items = items.filter(item => {
-        const matchesSearch = !search || 
+        const matchesSearch = !search ||
           item.title?.toLowerCase().includes(search.toLowerCase()) ||
           item.description?.toLowerCase().includes(search.toLowerCase());
-        
-        const matchesLocation = !location || 
+
+        const matchesLocation = !location ||
           item.location?.toLowerCase().includes(location.toLowerCase());
-        
-        return matchesSearch && matchesLocation;
+
+        const matchesCategory = !category ||
+          item.category === category ||
+          item.subcategory === category ||
+          item.category?.toLowerCase().replace(/[\s&]+/g, '-').replace(/[^a-z0-9-]/g, '') === category;
+
+        const matchesCondition = !condition ||
+          item.condition === condition;
+
+        return matchesSearch && matchesLocation && matchesCategory && matchesCondition;
       });
     }
     
