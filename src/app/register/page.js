@@ -53,6 +53,21 @@ export default function RegisterPage() {
     e.preventDefault();
     setError('');
 
+    if (!email.trim()) {
+      setError('Email address is required');
+      return;
+    }
+
+    if (!password) {
+      setError('Password is required');
+      return;
+    }
+
+    if (!confirmPassword) {
+      setError('Please confirm your password');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
