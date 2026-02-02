@@ -21,7 +21,7 @@ export async function GET(request) {
     const bathrooms = searchParams.get('bathrooms');
     const location = searchParams.get('location');
     const propertyType = searchParams.get('propertyType');
-    const listingType = searchParams.get('listingType');
+    const listingType = searchParams.get('listingType') || searchParams.get('type');
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     
