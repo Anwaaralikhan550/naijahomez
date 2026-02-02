@@ -1,22 +1,23 @@
 'use client';
 import { useAuth } from '@/context/AuthContext';
-import { redirect } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 export default function TheHubPage() {
   const { user, loading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     if (!loading) {
       if (user) {
         // Authenticated user - redirect to dashboard
-        redirect('/the-hub/dashboard');
+        router.replace('/the-hub/dashboard');
       } else {
         // Guest user - redirect to communities listing for discovery
-        redirect('/the-hub/communities');
+        router.replace('/the-hub/communities');
       }
     }
-  }, [user, loading]);
+  }, [user, loading, router]);
 
   // Show loading while determining auth status
   if (loading) {
