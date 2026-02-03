@@ -5,6 +5,7 @@ import { getAdminFirestore } from '@/lib/firebase-admin';
 import cache, { cacheKeys } from '@/lib/cache';
 import { generateDocumentSlug } from '@/utils/slugify';
 import logger from '@/lib/logger';
+import { fixListingEncoding } from '@/utils/fixEncoding';
 
 // GET - Fetch properties with efficient server-side filtering
 export async function GET(request) {
@@ -71,12 +72,12 @@ export async function GET(request) {
     let properties = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      properties.push({
+      properties.push(fixListingEncoding({
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString()
-      });
+      }));
     });
 
     // Apply all filters client-side

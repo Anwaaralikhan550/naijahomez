@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import { fixListingEncoding } from '@/utils/fixEncoding';
 
 // GET - Fetch a property by slug
 export async function GET(request, { params }) {
@@ -53,13 +54,13 @@ export async function GET(request, { params }) {
     
     return NextResponse.json({
       success: true,
-      data: {
+      data: fixListingEncoding({
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString()
-      },
-      similar: similarProperties.slice(0, 3)
+      }),
+      similar: similarProperties.slice(0, 3).map(fixListingEncoding)
     });
     
   } catch (error) {

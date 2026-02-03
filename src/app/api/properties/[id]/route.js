@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { getAuth } from 'firebase-admin/auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+import { fixListingEncoding } from '@/utils/fixEncoding';
 
 // GET - Fetch a single property
 export async function GET(request, { params }) {
@@ -25,12 +26,12 @@ export async function GET(request, { params }) {
     
     return NextResponse.json({
       success: true,
-      data: {
+      data: fixListingEncoding({
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString()
-      }
+      })
     });
     
   } catch (error) {
