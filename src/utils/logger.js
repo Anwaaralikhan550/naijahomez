@@ -351,7 +351,11 @@ class Logger {
   // Global error handling
   initializeErrorHandling() {
     if (typeof window === 'undefined') return;
-    
+
+    // Guard against duplicate listeners on Fast Refresh re-evaluation
+    if (window.__loggerErrorHandlersInstalled) return;
+    window.__loggerErrorHandlersInstalled = true;
+
     // Unhandled promise rejections
     window.addEventListener('unhandledrejection', (event) => {
       this.error('Unhandled Promise Rejection', event.reason, {
@@ -359,7 +363,7 @@ class Logger {
         promise: event.promise
       });
     });
-    
+
     // Global errors
     window.addEventListener('error', (event) => {
       this.error('Global Error', event.error, {
@@ -369,7 +373,7 @@ class Logger {
         colno: event.colno
       });
     });
-    
+
     // Resource loading errors
     window.addEventListener('error', (event) => {
       if (event.target !== window) {
@@ -385,16 +389,23 @@ class Logger {
   // Performance monitoring
   startPerformanceMonitoring() {
     if (typeof window === 'undefined' || !config.enablePerformanceTracking) return;
-    
+
+    // Guard against duplicate observers on Fast Refresh re-evaluation
+    if (window.__loggerPerfMonitorInstalled) return;
+    window.__loggerPerfMonitorInstalled = true;
+
     // Monitor navigation timing
     window.addEventListener('load', () => {
       setTimeout(() => {
         this.trackNavigationTiming();
       }, 100);
     });
-    
-    // Monitor long tasks
-    if ('PerformanceObserver' in window) {
+
+    // Monitor long tasks - production only
+    // In development, Turbopack HMR rebuilds regularly exceed 50ms
+    // and generate excessive console spam (BUG-007)
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction && 'PerformanceObserver' in window) {
       try {
         const observer = new PerformanceObserver((list) => {
           list.getEntries().forEach((entry) => {
