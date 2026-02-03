@@ -11,9 +11,9 @@
 | Metric | Count |
 |--------|-------|
 | Total bugs in QA report | 16 |
-| Bugs fixed (code changes) | 15 |
+| Bugs fixed (code changes) | 16 |
 | Bugs marked WONTFIX | 0 |
-| Bugs skipped (admin) | 1 |
+| Bugs skipped | 0 |
 | Production build | PASSED |
 
 ---
@@ -32,7 +32,7 @@
 | BUG-008 | Minor | No validation on empty registration | FIXED |
 | BUG-009 | Major | Verify email "Skip for now" redirect loop | FIXED |
 | BUG-010 | Minor | Raw Firebase error on invalid login | FIXED |
-| BUG-011 | Major | Hub admin accessible to unauth users | SKIPPED (admin scope) |
+| BUG-011 | Major | Hub admin accessible to unauth users | FIXED |
 | BUG-012 | Major | Property type filter ignored by API | FIXED |
 | BUG-013 | Minor | Inconsistent redirect param names | FIXED |
 | BUG-014 | Minor | Garbled Unicode emoji in addresses | FIXED |
@@ -98,11 +98,24 @@
 - **Note**: Fast Refresh rebuild messages are Turbopack-internal and cannot be suppressed
 - **Evidence**: logs/remaining/bug-007-before.txt → logs/remaining/bug-007-after.txt
 
+### BUG-011 — Hub admin accessible to unauthenticated users
+- **Before**: Unauthenticated users visiting `/the-hub/admin` could see admin layout with "Loading community..." spinner and "Please wait while we load your admin dashboard" message. No redirect occurred.
+- **After**:
+  - Unauthenticated users → immediately redirected to `/login?redirect=%2Fthe-hub%2Fadmin` (no admin UI flash)
+  - Authenticated non-admin users → shown "Access Denied" page with navigation options
+  - Authenticated admin users → rendered admin dashboard normally
+- **Security Fix**: Auth guard added to admin page that:
+  1. Returns `null` during auth loading (prevents flash-of-admin-layout)
+  2. Redirects to login with proper redirect param for unauthenticated users
+  3. Verifies admin role via communities API before rendering admin UI
+- **Evidence**: evidence/bug-011-before.png → evidence/bug-011-after-unauth.png, evidence/bug-011-after-nonadmin.png
+
 ---
 
-## Git Log (13 fix commits)
+## Git Log (14 fix commits)
 
 ```
+fix(BUG-011): protect /the-hub/admin with auth+role guard
 fix(BUG-014): repair garbled Unicode emoji in property listings via API-level encoding fix
 fix(BUG-007): eliminate Long Task warnings and duplicate observers in dev mode
 fix(BUG-016): add success and standard fields to hub communities API response
@@ -118,7 +131,7 @@ fix(BUG-005): resolve /the-hub blank page rendering
 fix(BUG-009): resolve verify email "Skip for now" redirect loop
 ```
 
-## Files Modified (17 files)
+## Files Modified (18 files)
 
 1. `src/app/verify-email/page.js` — BUG-009
 2. `src/app/the-hub/page.js` — BUG-005
@@ -138,10 +151,11 @@ fix(BUG-009): resolve verify email "Skip for now" redirect loop
 16. `src/app/api/properties/[id]/route.js` — BUG-014
 17. `src/app/api/properties/slug/[slug]/route.js` — BUG-014
 18. `scripts/fix-encoding.js` — BUG-014 (new, migration script)
+19. `src/app/the-hub/admin/page.js` — BUG-011
 
 ## Verification Methods
 
-- **Browser (Playwright MCP)**: BUG-009, BUG-005, BUG-003, BUG-010, BUG-008, BUG-006, BUG-004, BUG-007, BUG-014
+- **Browser (Playwright MCP)**: BUG-009, BUG-005, BUG-003, BUG-010, BUG-008, BUG-006, BUG-004, BUG-007, BUG-014, BUG-011
 - **curl API testing**: BUG-012, BUG-015
 - **Code review**: BUG-013, BUG-016
 - **Build verification**: `npx next build` — PASSED
