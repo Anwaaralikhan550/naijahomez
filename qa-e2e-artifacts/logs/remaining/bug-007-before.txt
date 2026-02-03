@@ -1,0 +1,48 @@
+=== BUG-007 BEFORE STATE ===
+Date: Tue, Feb  3, 2026  8:20:24 AM
+
+--- Homepage Console Log ---
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1f56dc._.js:13948
+[LOG] User signed out @ http://localhost:3000/_next/static/chunks/src_a1268d._.js:1073
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+--- Property Page Console Log ---
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1f56dc._.js:13948
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] User signed out @ http://localhost:3000/_next/static/chunks/src_a1268d._.js:1073
+[LOG] %c[8:16:41 AM] INFO%c Navigation Timing color: #0066cc; font-weight: bold color: inherit {performance: Object, metrics: Object, component: at Logger.trackNavigationTiming (http://localhost:3000/_next/static/chunks/src_8087c7._.js:2007:14)} @ http://localhost:3000/_next/static/chunks/src_8087c7._.js:1795
+[LOG] %c[8:16:41 AM] WARN%c Long Task detected color: #ff6600; font-weight: bold color: inherit {duration: 55.00ms, startTime: 2247.7999999821186, name: unknown, component: at http://localhost:3000/_next/static/chunks/src_8087c7._.js:1977:34, performance: Object} @ http://localhost:3000/_next/static/chunks/src_8087c7._.js:1795
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] %c[8:16:42 AM] WARN%c Long Task detected color: #ff6600; font-weight: bold color: inherit {duration: 74.00ms, startTime: 3675.5, name: self, component: at http://localhost:3000/_next/static/chunks/src_8087c7._.js:1977:34, performance: Object} @ http://localhost:3000/_next/static/chunks/src_8087c7._.js:1795
+--- Search Page Console Log ---
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1f56dc._.js:13948
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] User signed out @ http://localhost:3000/_next/static/chunks/src_a1268d._.js:1073
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+=== COUNTS ===
+Fast Refresh rebuilding (homepage): 13
+Fast Refresh rebuilding (property): 7
+Fast Refresh rebuilding (search): 8
+Long Task detected (property): 2

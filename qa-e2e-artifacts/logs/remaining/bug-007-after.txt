@@ -1,0 +1,15 @@
+=== BUG-007 AFTER STATE ===
+Date: Tue, Feb  3, 2026  8:25:37 AM
+
+=== COUNTS ===
+Fast Refresh rebuilding (homepage): 9
+Fast Refresh rebuilding (property): 6
+Fast Refresh rebuilding (search): 10
+Long Task detected (homepage): 0
+Long Task detected (property): 0
+Long Task detected (search): 0
+
+=== COMPARISON ===
+Long Task warnings: BEFORE=2, AFTER=0 (ELIMINATED)
+Fast Refresh: Still present (inherent to Next.js Turbopack dev mode, not app code)
+Duplicate event listeners: PREVENTED via window guards

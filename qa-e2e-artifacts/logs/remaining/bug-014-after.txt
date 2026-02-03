@@ -1,0 +1,40 @@
+BUG-014 AFTER FIX - Encoding Verification
+==========================================
+Date: 2026-02-03
+Page: /search?q=Lekki and /api/properties?search=Ajah
+
+API Verification Results:
+- Total results from Ajah search: 23
+- hasGarbled (mojibake regex test): false
+- Entries with proper 🇳🇬 emoji: 4
+
+Sample locations from API (all clean):
+1. Thomas Estate, Ajah, Lagos
+2. Ajah Lekki Lagos🇳🇬, Ajah, Lagos
+3. Ajah Lekki Lagos🇳🇬, Ajah, Lagos
+4. Ajah Lekki Lagos🇳🇬, Ajah, Lagos
+5. Lekki Ajah, Lagos, Ajah, Lagos
+6. Ajah, Lagos
+7. Ajah, Lagos🇳🇬, Ajah, Lagos
+8. Lekki, Lagos
+9. Lekki Palm City - Ajah, Lekki, Lagos
+10. Lekki, Lagos
+
+UI Verification (Playwright MCP snapshot):
+- e444: "Idado Estate Lekki Lagos 🇳🇬, Lekki, Lagos" ✅
+- e511: "Ajah Lekki Lagos🇳🇬, Ajah, Lagos" ✅
+- e530: "Ajah Lekki Lagos🇳🇬, Ajah, Lagos" ✅
+- e549: "Ajah Lekki Lagos🇳🇬, Ajah, Lagos" ✅
+- e712: "Ajah, Lagos🇳🇬, Ajah, Lagos" ✅
+
+BEFORE (garbled): "Ajah Lekki Lagosð🇳ð🇬"
+AFTER  (fixed):   "Ajah Lekki Lagos🇳🇬"
+
+Comparison:
+- Before: mojibake detected = true, garbled Latin-1 sequences present
+- After:  mojibake detected = false, proper Unicode emoji rendered
+- Fix: API-level fixListingEncoding() applied in properties route handlers
+
+Evidence files:
+- Before screenshot: qa-e2e-artifacts/evidence/remaining/bug-014-before.png
+- After screenshot:  qa-e2e-artifacts/evidence/remaining/bug-014-after.png

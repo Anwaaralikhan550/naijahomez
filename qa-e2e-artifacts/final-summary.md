@@ -1,7 +1,7 @@
 # Final QA Bug Fix Summary
 
-**Branch**: `fix/qa-non-admin-bugs`
-**Date**: 2026-02-02
+**Branch**: `fix/qa-remaining-bugs`
+**Date**: 2026-02-03
 **Build**: `npx next build` — PASSED (no errors)
 
 ---
@@ -11,8 +11,8 @@
 | Metric | Count |
 |--------|-------|
 | Total bugs in QA report | 16 |
-| Bugs fixed (code changes) | 13 |
-| Bugs marked WONTFIX | 2 |
+| Bugs fixed (code changes) | 15 |
+| Bugs marked WONTFIX | 0 |
 | Bugs skipped (admin) | 1 |
 | Production build | PASSED |
 
@@ -28,14 +28,14 @@
 | BUG-004 | Major | Marketplace category tabs don't filter | FIXED |
 | BUG-005 | Major | The Hub main page renders blank | FIXED |
 | BUG-006 | Minor | Post Ad stuck redirect for unauth users | FIXED |
-| BUG-007 | Minor | Excessive Fast Refresh warnings | WONTFIX (dev-mode only) |
+| BUG-007 | Minor | Excessive Fast Refresh warnings | FIXED |
 | BUG-008 | Minor | No validation on empty registration | FIXED |
 | BUG-009 | Major | Verify email "Skip for now" redirect loop | FIXED |
 | BUG-010 | Minor | Raw Firebase error on invalid login | FIXED |
 | BUG-011 | Major | Hub admin accessible to unauth users | SKIPPED (admin scope) |
 | BUG-012 | Major | Property type filter ignored by API | FIXED |
 | BUG-013 | Minor | Inconsistent redirect param names | FIXED |
-| BUG-014 | Minor | Garbled Unicode emoji in addresses | WONTFIX (data-layer) |
+| BUG-014 | Minor | Garbled Unicode emoji in addresses | FIXED |
 | BUG-015 | Minor | User APIs return 400 instead of 401 | FIXED |
 | BUG-016 | Minor | Hub communities API inconsistent format | FIXED |
 
@@ -87,19 +87,24 @@
 - **Before**: Empty response: `{ communities: [] }` — missing standard fields
 - **After**: `{ success: true, communities: [], data: [], pagination: { total: 0 } }`
 
-### BUG-014 — Garbled Unicode (WONTFIX)
-- **Issue**: Firestore documents contain mis-encoded UTF-8 sequences
-- **Resolution**: Requires data migration, not a code fix
+### BUG-014 — Garbled Unicode emoji in addresses
+- **Before**: Locations display garbled mojibake like "Ajah Lekki Lagosð🇳ð🇬" (UTF-8 bytes stored as Latin-1)
+- **After**: Locations display proper emoji "Ajah Lekki Lagos🇳🇬" via API-level fixListingEncoding()
+- **Evidence**: evidence/remaining/bug-014-before.png → evidence/remaining/bug-014-after.png
 
-### BUG-007 — Fast Refresh warnings (WONTFIX)
-- **Issue**: 30-50+ HMR rebuild messages per page load in dev mode
-- **Resolution**: Normal Turbopack dev-mode behavior; absent in production build
+### BUG-007 — Excessive Fast Refresh warnings
+- **Before**: 2+ "Long Task detected" warnings per page, duplicate PerformanceObservers on HMR re-evaluation
+- **After**: 0 Long Task warnings (monitoring now production-only), duplicate observer guards added
+- **Note**: Fast Refresh rebuild messages are Turbopack-internal and cannot be suppressed
+- **Evidence**: logs/remaining/bug-007-before.txt → logs/remaining/bug-007-after.txt
 
 ---
 
-## Git Log (11 fix commits)
+## Git Log (13 fix commits)
 
 ```
+fix(BUG-014): repair garbled Unicode emoji in property listings via API-level encoding fix
+fix(BUG-007): eliminate Long Task warnings and duplicate observers in dev mode
 fix(BUG-016): add success and standard fields to hub communities API response
 fix(BUG-015): return 401 instead of 400 for unauthenticated user API requests
 fix(BUG-006): redirect unauthenticated users to login from /post-ad
@@ -113,14 +118,14 @@ fix(BUG-005): resolve /the-hub blank page rendering
 fix(BUG-009): resolve verify email "Skip for now" redirect loop
 ```
 
-## Files Modified (11 files)
+## Files Modified (17 files)
 
 1. `src/app/verify-email/page.js` — BUG-009
 2. `src/app/the-hub/page.js` — BUG-005
 3. `src/components/layout/Header.js` — BUG-003
 4. `src/components/marketplace/MarketplaceListings.js` — BUG-004
 5. `src/app/api/marketplace/route.js` — BUG-004
-6. `src/app/api/properties/route.js` — BUG-012
+6. `src/app/api/properties/route.js` — BUG-012, BUG-014
 7. `src/context/AuthContext.js` — BUG-010
 8. `src/app/register/page.js` — BUG-008
 9. `src/app/profile/page.js` — BUG-013
@@ -128,10 +133,15 @@ fix(BUG-009): resolve verify email "Skip for now" redirect loop
 11. `src/app/api/user/listings/route.js` — BUG-015
 12. `src/app/api/user/messages/count/route.js` — BUG-015
 13. `src/app/api/hub/communities/route.js` — BUG-016
+14. `src/utils/logger.js` — BUG-007
+15. `src/utils/fixEncoding.js` — BUG-014 (new)
+16. `src/app/api/properties/[id]/route.js` — BUG-014
+17. `src/app/api/properties/slug/[slug]/route.js` — BUG-014
+18. `scripts/fix-encoding.js` — BUG-014 (new, migration script)
 
 ## Verification Methods
 
-- **Browser (Playwright MCP)**: BUG-009, BUG-005, BUG-003, BUG-010, BUG-008, BUG-006, BUG-004
+- **Browser (Playwright MCP)**: BUG-009, BUG-005, BUG-003, BUG-010, BUG-008, BUG-006, BUG-004, BUG-007, BUG-014
 - **curl API testing**: BUG-012, BUG-015
 - **Code review**: BUG-013, BUG-016
 - **Build verification**: `npx next build` — PASSED

@@ -1,0 +1,9 @@
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1f56dc._.js:13948
+[LOG] User signed out @ http://localhost:3000/_next/static/chunks/src_a1268d._.js:1073
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
+[LOG] %c[8:23:16 AM] INFO%c Navigation Timing color: #0066cc; font-weight: bold color: inherit {performance: Object, metrics: Object, component: at Logger.trackNavigationTiming (http://localhost:3000/_next/static/chunks/src_8087c7._.js:1997:14)} @ http://localhost:3000/_next/static/chunks/src_8087c7._.js:1795
+[LOG] [Fast Refresh] rebuilding @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_523921._.js:13665
