@@ -1,4 +1,5 @@
 import { ImageProcessor } from '@/lib/imageProcessor';
+import { auth } from '@/lib/firebase-client';
 
 /**
  * Enhanced upload service that pre-processes images before upload
@@ -81,8 +82,15 @@ export class OptimizedUpload {
    */
   static async uploadSingleFile(file, folder = 'uploads', filename = null, userId = null) {
     try {
+      // Get Firebase auth token for upload authorization
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('Authentication required for upload');
+      }
+      const token = await currentUser.getIdToken();
+
       const formData = new FormData();
-      
+
       // Use custom filename if provided
       if (filename) {
         const customFile = new File([file], filename, { type: file.type });
@@ -90,18 +98,21 @@ export class OptimizedUpload {
       } else {
         formData.append('file', file);
       }
-      
+
       if (folder) {
         formData.append('folder', folder);
       }
 
-      // Add user ID for authentication
+      // Add user ID for tracking (optional metadata)
       if (userId) {
         formData.append('userId', userId);
       }
 
       const response = await fetch('/api/upload', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData
       });
 
@@ -111,7 +122,7 @@ export class OptimizedUpload {
       }
 
       const data = await response.json();
-      
+
       if (!data.url) {
         throw new Error('No URL returned from upload service');
       }

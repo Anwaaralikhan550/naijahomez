@@ -18,7 +18,18 @@ class ApiService {
         return null;
       }
       // Force refresh if token is about to expire (within 5 minutes)
-      return await currentUser.getIdToken(/* forceRefresh */ false);
+      // return await currentUser.getIdToken(/* forceRefresh */ false);
+      
+      // Attempt to get token with timeout to prevent hanging
+      const tokenPromise = currentUser.getIdToken(false);
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2000));
+      
+      const token = await Promise.race([tokenPromise, timeoutPromise]);
+      if (!token) {
+          console.warn('Token retrieval timed out, using cached token');
+          return currentUser.accessToken;
+      }
+      return token;
     } catch (error) {
       logger.error('Failed to get auth token', error);
       return null;
@@ -321,8 +332,17 @@ class ApiService {
       formData.append('draftId', draftId);
     }
 
+    // Get auth token for upload authorization
+    const token = await this.getAuthToken();
+    if (!token) {
+      throw new Error('Authentication required for upload');
+    }
+
     const response = await fetch(`${this.baseUrl}/upload`, {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
       body: formData
     });
 

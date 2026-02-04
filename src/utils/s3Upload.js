@@ -1,19 +1,31 @@
 // utils/s3Upload.js
-// Firebase imports removed - s3Upload now uses API endpoints only
+import { auth, db } from '@/lib/firebase-client';
+import { doc, addDoc, updateDoc, collection, arrayUnion } from 'firebase/firestore';
 
 export const uploadToS3 = async (file, draftId = null, userId = null) => {
   try {
     console.log("Starting file upload to S3:", file.name);
+
+    // Get Firebase auth token for upload authorization
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('Authentication required for upload');
+    }
+    const token = await currentUser.getIdToken();
+
     const formData = new FormData();
     formData.append('file', file);
-    
-    // Add user ID for authentication
+
+    // Add user ID for tracking (optional metadata)
     if (userId) {
       formData.append('userId', userId);
     }
 
     const response = await fetch('/api/upload', {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
       body: formData
     });
 

@@ -6,6 +6,8 @@ import { Image, X, Loader2, Calendar, MapPin } from 'lucide-react';
 import apiService from '@/services/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
+import { db } from '@/lib/firebase-client';
+import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 export default function NoticeForm({ onSubmit, onCancel }) {
   const { user } = useAuth();

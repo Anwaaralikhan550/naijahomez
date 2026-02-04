@@ -6,6 +6,8 @@ import { Image, X, Loader2, MapPin, Tag } from 'lucide-react';
 import apiService from '@/services/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
+import { db } from '@/lib/firebase-client';
+import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null }) {
   const { user } = useAuth();

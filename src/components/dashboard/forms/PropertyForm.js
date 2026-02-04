@@ -5,6 +5,8 @@ import { Image, X, Loader2, MapPin, Home, Bath, Car, Wifi, Wind, Shield, DollarS
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
 import toast from 'react-hot-toast';
+import { db } from '@/lib/firebase-client';
+import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 export default function PropertyForm({ onSubmit, onCancel }) {
   const { user } = useAuth();
