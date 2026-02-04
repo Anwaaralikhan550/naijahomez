@@ -1,5 +1,31 @@
 {
-  "items": [],
-  "timestamp": "2026-02-04T04:40:00Z",
-  "notes": "No test items persisted to database. Form submission shows success message but backend persistence requires investigation."
+  "items": [
+    {
+      "type": "property",
+      "collection": "properties",
+      "documentId": "auVx0EUM7K6Qac4FlYpT",
+      "slug": "qa-test-property-backend-persistence-verification-auVx0EUM",
+      "title": "QA Test Property - Backend Persistence Verification",
+      "propertyType": "Apartment",
+      "location": "Victoria Island, Lagos",
+      "price": "2500000",
+      "priceFormatted": "₦2,500,000/month",
+      "listingType": "rent",
+      "status": "active",
+      "createdAt": "2026-02-04T09:52:00Z",
+      "verifiedIn": {
+        "myAds": true,
+        "propertyListing": true,
+        "searchResults": true
+      },
+      "evidenceFiles": [
+        "bug-persistence-01-submit-success.png",
+        "bug-persistence-02-my-ads-visible.png",
+        "bug-persistence-03-property-listing.png",
+        "bug-persistence-04-search-results.png"
+      ]
+    }
+  ],
+  "timestamp": "2026-02-04T09:55:00Z",
+  "notes": "Test property successfully persisted to Firestore after /api/ads POST fix. Property appears in My Ads, property listings, and search results."
 }

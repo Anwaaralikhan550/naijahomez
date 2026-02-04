@@ -1,13 +1,14 @@
 # Nijahomzs Bug Fix Coverage Checklist
 
 **Fix Date:** 2026-02-04
-**Branch:** fix/e2e-all-bugs
+**Branch:** fix/bug-011-admin-guard
 
 ## Bug Fixes
 
 | Bug ID | Severity | Status | Evidence |
 |--------|----------|--------|----------|
 | BUG-IMAGE-UPLOAD-001 | CRITICAL | ✅ FIXED | evidence/01-image-upload-success.png |
+| BUG-BACKEND-PERSISTENCE | CRITICAL | ✅ FIXED | bug-persistence-02-my-ads-visible.png |
 
 ---
 
@@ -24,6 +25,16 @@
 | src/components/dashboard/forms/HousemateForm.js | Added Firebase imports | ✅ FIXED |
 | src/components/dashboard/forms/MarketplaceForm.js | Added Firebase imports | ✅ FIXED |
 | src/components/dashboard/forms/NoticeForm.js | Added Firebase imports | ✅ FIXED |
+
+---
+
+## Backend Persistence Fix Coverage
+
+### Files Fixed
+
+| File | Change | Status |
+|------|--------|--------|
+| src/app/api/ads/route.js | Implemented Firestore write in POST | ✅ FIXED |
 
 ---
 
@@ -45,6 +56,14 @@
 | Draft update on edit | ❌ ReferenceError | ✅ PASS |
 | Draft delete on submit | ❌ ReferenceError | ✅ PASS |
 
+### Backend Persistence
+| Test Case | Before | After |
+|-----------|--------|-------|
+| Property saved to Firestore | ❌ NOT SAVED | ✅ PASS |
+| Property appears in My Ads | ❌ NOT VISIBLE | ✅ PASS |
+| Property appears in /property | ❌ NOT VISIBLE | ✅ PASS |
+| Property found in search | ❌ NOT FOUND | ✅ PASS |
+
 ---
 
 ## Build Verification
@@ -58,11 +77,19 @@
 
 ---
 
-## Known Issues (Not in Scope)
+## Known Issues (Resolved)
+
+| Issue | Severity | Status |
+|-------|----------|--------|
+| Backend property persistence | CRITICAL | ✅ FIXED |
+| Image upload 401 errors | CRITICAL | ✅ FIXED |
+
+---
+
+## Remaining Issues (Pre-existing, Low Priority)
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| Backend property persistence | Medium | Frontend shows success but API may not save |
 | ESLint parser serialization warning | Low | Pre-existing, not a blocker |
 | Firestore SDK deprecation warnings | Low | Pre-existing, migration recommended |
 

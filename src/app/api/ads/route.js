@@ -73,7 +73,7 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-    try {
+  try {
     // Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
@@ -82,13 +82,74 @@ export async function POST(request) {
 
     const userId = authResult.user.uid;
     const data = await request.json();
-      
-      // Handle the ad submission
-      // Save to database
-      // Handle image uploads
-      
-      return Response.json({ success: true });
-    } catch (error) {
-      return Response.json({ error: error.message }, { status: 500 });
+
+    // Validate required fields
+    if (!data.collectionName) {
+      return NextResponse.json(
+        { error: 'Collection name is required' },
+        { status: 400 }
+      );
     }
+
+    // Validate collection name
+    const validCollections = ['properties', 'marketplace', 'services', 'noticeboard', 'housemates'];
+    if (!validCollections.includes(data.collectionName)) {
+      return NextResponse.json(
+        { error: 'Invalid collection name' },
+        { status: 400 }
+      );
+    }
+
+    // Get Admin Firestore
+    const db = getAdminFirestore();
+    const collectionRef = db.collection(data.collectionName);
+    const docRef = collectionRef.doc();
+
+    // Generate slug for the document
+    const { generateDocumentSlug } = await import('@/utils/slugify');
+    const title = data.title || data.name || 'Untitled';
+    const slug = generateDocumentSlug(title, docRef.id);
+
+    // Remove collectionName from data before saving (it's metadata, not document data)
+    const { collectionName, ...documentData } = data;
+
+    // Prepare document data with proper timestamps and metadata
+    const finalData = {
+      ...documentData,
+      userId,
+      slug,
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      // Add search-friendly lowercase fields
+      titleLower: title.toLowerCase(),
+      locationLower: (data.location || '').toLowerCase(),
+      // Parse numeric price for filtering
+      priceNumeric: parseFloat(String(data.price || data.rentPerMonth || 0).replace(/[^0-9.]/g, '')) || 0
+    };
+
+    // For properties, infer listing type if not provided
+    if (collectionName === 'properties' && !finalData.listingType) {
+      finalData.listingType = data.rentPerMonth ? 'rent' : 'sale';
+    }
+
+    // Save to Firestore
+    await docRef.set(finalData);
+
+    logger.info(`Ad created successfully in ${collectionName}`, { docId: docRef.id, userId });
+
+    return NextResponse.json({
+      success: true,
+      id: docRef.id,
+      slug,
+      collectionName
+    });
+
+  } catch (error) {
+    logger.error('Error creating ad', error);
+    return NextResponse.json(
+      { error: 'Failed to create ad: ' + error.message },
+      { status: 500 }
+    );
   }
+}
