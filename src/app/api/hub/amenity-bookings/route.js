@@ -4,6 +4,12 @@ import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
 
 export async function GET(request) {
   try {
+    // SECURITY: Verify authentication
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
     // Initialize admin SDK
     const db = getAdminFirestore();
 

@@ -15,6 +15,12 @@ import {
 
 async function handleGET(request) {
   try {
+    // SECURITY: Verify authentication
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
     const { searchParams } = new URL(request.url);
     const communityId = searchParams.get('communityId');
     const userId = searchParams.get('userId');
@@ -27,7 +33,7 @@ async function handleGET(request) {
     // If admin view, get all notifications for community
     // If user view, get only notifications for that user
     const notifications = await getNotifications(communityId, adminView ? null : userId);
-    
+
     return createSuccessResponse({ notifications });
   } catch (error) {
     console.error('Error in notifications API:', error);

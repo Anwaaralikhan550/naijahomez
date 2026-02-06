@@ -4,6 +4,12 @@ import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
 
 export async function GET(request) {
   try {
+    // SECURITY: Verify authentication
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
     // Initialize admin SDK
     const db = getAdminFirestore();
 
@@ -15,22 +21,30 @@ export async function GET(request) {
       return NextResponse.json({ error: 'User ID and Community ID are required' }, { status: 400 });
     }
 
+    // Query without orderBy to avoid composite index requirement
     const querySnapshot = await db.collection('privateConversations')
       .where('communityId', '==', communityId)
       .where('participantIds', 'array-contains', userId)
-      .orderBy('updatedAt', 'desc')
       .get();
     const conversations = [];
-    
+
     for (const conversationDoc of querySnapshot.docs) {
-      const conversationData = { id: conversationDoc.id, ...conversationDoc.data() };
-      
+      const data = conversationDoc.data();
+      // Convert Firestore timestamps to serializable format
+      if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+        data.createdAt = data.createdAt.toDate().toISOString();
+      }
+      if (data.updatedAt && typeof data.updatedAt.toDate === 'function') {
+        data.updatedAt = data.updatedAt.toDate().toISOString();
+      }
+      const conversationData = { id: conversationDoc.id, ...data };
+
       // Get the other participant info
       const otherParticipantId = conversationData.participantIds.find(id => id !== userId);
-      const otherParticipantName = conversationData.participantNames.find((name, index) => 
+      const otherParticipantName = conversationData.participantNames.find((name, index) =>
         conversationData.participantIds[index] !== userId
       );
-      
+
       conversationData.otherParticipant = {
         id: otherParticipantId,
         name: otherParticipantName,
@@ -44,9 +58,16 @@ export async function GET(request) {
         .where('isRead', '==', false)
         .get();
       conversationData.unreadCount = unreadSnapshot.size;
-      
+
       conversations.push(conversationData);
     }
+
+    // Sort by updatedAt descending (client-side to avoid composite index)
+    conversations.sort((a, b) => {
+      const aTime = new Date(a.updatedAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || 0).getTime();
+      return bTime - aTime;
+    });
 
     return NextResponse.json({ conversations });
   } catch (error) {

@@ -13,6 +13,12 @@ import {
 
 async function handleGET(request) {
   try {
+    // SECURITY: Verify authentication
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
     const { searchParams } = new URL(request.url);
     const communityId = searchParams.get('communityId');
     const userId = searchParams.get('userId');

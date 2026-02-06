@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initAdmin } from '@/lib/firebase-admin';
+import { verifyAuth } from '@/lib/auth-middleware';
 
 // Initialize admin SDK
 initAdmin();
@@ -10,6 +11,12 @@ const db = getFirestore();
 // GET - Fetch power status for a community
 export async function GET(request) {
   try {
+    // SECURITY: Verify authentication
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
     const { searchParams } = new URL(request.url);
     const communityId = searchParams.get('communityId');
     

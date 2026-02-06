@@ -41,12 +41,12 @@ const PrivateMessages = ({ communityId }) => {
   const messagesEndRef = useRef(null);
 
   // Create Firestore queries for real-time updates
+  // Note: removed orderBy to avoid composite index requirement; sorting done client-side
   const conversationsQuery = communityId && user?.uid
     ? query(
-        collection(db, 'conversations'),
-        where('participants', 'array-contains', user.uid),
-        where('communityId', '==', communityId),
-        orderBy('updatedAt', 'desc')
+        collection(db, 'privateConversations'),
+        where('participantIds', 'array-contains', user.uid),
+        where('communityId', '==', communityId)
       )
     : null;
 

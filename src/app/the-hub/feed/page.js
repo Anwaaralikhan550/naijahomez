@@ -4,6 +4,7 @@ import CommunitySocialFeed from '@/components/hub/CommunitySocialFeed';
 import { useAuth } from '@/context/AuthContext';
 import { useSearchParams } from 'next/navigation';
 import { useState, useEffect, useCallback, Suspense } from 'react';
+import { authenticatedFetch } from '@/services/api';
 
 function HubFeedContent() {
   const { user } = useAuth();
@@ -21,7 +22,7 @@ function HubFeedContent() {
 
     const loadUserCommunities = async () => {
       try {
-        const response = await fetch(`/api/hub/communities?type=user&userId=${user.uid}`);
+        const response = await authenticatedFetch(`/api/hub/communities?type=user&userId=${user.uid}`);
         if (response.ok) {
           const result = await response.json();
           setUserCommunities(result.communities || []);

@@ -15,6 +15,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { authenticatedFetch } from '@/services/api';
 import toast from 'react-hot-toast';
 
 export default function HubCommunitiesPage() {
@@ -38,14 +39,14 @@ export default function HubCommunitiesPage() {
       
       // Load user's communities (only if authenticated)
       if (user?.uid) {
-        const userResponse = await fetch(`/api/hub/communities?type=user&userId=${user.uid}`);
+        const userResponse = await authenticatedFetch(`/api/hub/communities?type=user&userId=${user.uid}`);
         if (userResponse.ok) {
           const userResult = await userResponse.json();
           setUserCommunities(userResult.communities || []);
         }
 
         // Load user's join requests
-        const requestsResponse = await fetch(`/api/hub/join-requests?userId=${user.uid}`);
+        const requestsResponse = await authenticatedFetch(`/api/hub/join-requests?userId=${user.uid}`);
         if (requestsResponse.ok) {
           const requestsResult = await requestsResponse.json();
           setJoinRequests(requestsResult.requests || []);
@@ -93,7 +94,7 @@ export default function HubCommunitiesPage() {
   const joinCommunity = async (communityId, communityName) => {
     try {
       setJoiningCommunity(communityId);
-      const response = await fetch('/api/hub/join-requests', {
+      const response = await authenticatedFetch('/api/hub/join-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

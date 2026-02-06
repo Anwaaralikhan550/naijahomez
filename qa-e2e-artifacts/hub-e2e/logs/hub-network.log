@@ -1,0 +1,13 @@
+[GET] https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?gsessionid=ky0KpXPHLwGEBcUwV3jDwMoNnxx2I0zrZhLor25ofkBlnlD7JAm5Mg&VER=8&database=projects%2Fnijahomzs-1ead3%2Fdatabases%2F(default)&RID=rpc&SID=6kKZw4OuGmBpOaEXRF4UJQ&AID=0&CI=0&TYPE=xmlhttp&zx=tm0k6m15vxsi&t=1 => [200] 
+[GET] https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?gsessionid=ky0KpXPHLwGEBcUwV3jDwMoNnxx2I0zrZhLor25ofkBlnlD7JAm5Mg&VER=8&database=projects%2Fnijahomzs-1ead3%2Fdatabases%2F(default)&RID=rpc&SID=6kKZw4OuGmBpOaEXRF4UJQ&AID=7&CI=0&TYPE=xmlhttp&zx=tcvz36hxtkya&t=1
+[POST] https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU => [200] 
+[POST] https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?VER=8&database=projects%2Fnijahomzs-1ead3%2Fdatabases%2F(default)&RID=59590&CVER=22&X-HTTP-Session-Id=gsessionid&zx=o9lhch3rz4wd&t=1 => [200] 
+[GET] https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?gsessionid=bG734hTc00DGQX9dG7jeqBeqIA_4rFKCLiQIDGAnKDvnaFlj4-cDoQ&VER=8&database=projects%2Fnijahomzs-1ead3%2Fdatabases%2F(default)&RID=rpc&SID=rMeVExvP8EdRYMfP8sYHVg&AID=0&CI=0&TYPE=xmlhttp&zx=i6nvx0dkf8rk&t=1 => [200] 
+[POST] https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?VER=8&database=projects%2Fnijahomzs-1ead3%2Fdatabases%2F(default)&gsessionid=bG734hTc00DGQX9dG7jeqBeqIA_4rFKCLiQIDGAnKDvnaFlj4-cDoQ&SID=rMeVExvP8EdRYMfP8sYHVg&RID=59591&AID=5&zx=pddfmv7i9id5&t=1 => [200] 
+[GET] http://localhost:3004/the-hub/dashboard?_rsc=1lah8 => [200] OK
+[GET] http://localhost:3004/api/hub/communities?type=user&userId=KTxCD2aSi0fnfonoGyhB0g6A0z83 => [200] OK
+[GET] http://localhost:3004/api/hub/communities?type=user&userId=KTxCD2aSi0fnfonoGyhB0g6A0z83 => [200] OK
+[GET] http://localhost:3004/api/hub/communities?type=user&userId=KTxCD2aSi0fnfonoGyhB0g6A0z83 => [200] OK
+[GET] http://localhost:3004/api/hub/communities?type=user&userId=KTxCD2aSi0fnfonoGyhB0g6A0z83 => [200] OK
+[GET] http://localhost:3004/api/hub/communities?type=public => [200] OK
+[GET] http://localhost:3004/api/hub/communities?type=public => [200] OK

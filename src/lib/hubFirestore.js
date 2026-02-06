@@ -300,11 +300,29 @@ export const createNotification = async (notificationData) => {
 };
 
 export const getNotifications = async (communityId, userId = null) => {
-  const filters = { communityId };
-  if (userId) {
-    filters.userId = userId;
+  try {
+    const filters = { communityId };
+    if (userId) {
+      filters.userId = userId;
+    }
+    return await getDocuments('hubNotifications', filters, { field: 'createdAt', direction: 'desc' });
+  } catch (error) {
+    // Fallback: if composite index is missing, query without orderBy and sort client-side
+    if (error.code === 9 || error.message?.includes('FAILED_PRECONDITION') || error.message?.includes('requires an index')) {
+      console.warn('Notifications composite index missing, falling back to client-side sort');
+      const filters = { communityId };
+      if (userId) {
+        filters.userId = userId;
+      }
+      const docs = await getDocuments('hubNotifications', filters);
+      return docs.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || a.createdAt?.getTime?.() || 0;
+        const bTime = b.createdAt?.toMillis?.() || b.createdAt?.getTime?.() || 0;
+        return bTime - aTime;
+      });
+    }
+    throw error;
   }
-  return getDocuments('hubNotifications', filters, { field: 'createdAt', direction: 'desc' });
 };
 
 export const markAllNotificationsRead = async (userId, communityId) => {

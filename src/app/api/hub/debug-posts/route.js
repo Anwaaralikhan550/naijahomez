@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import { verifyAuth } from '@/lib/auth-middleware';
 
 export async function GET(request) {
   try {
+    // SECURITY: Verify authentication
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
     // Initialize admin SDK
     const db = getAdminFirestore();
 

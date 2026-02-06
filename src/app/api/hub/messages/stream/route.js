@@ -64,11 +64,9 @@ export async function GET(request) {
             unsubscribes.push(unsubscribeMessages);
           } else {
             // Listen for conversation updates
-            const conversationsQuery = db.collection('conversations')
-              .where('participants', 'array-contains', userId)
-              .where('communityId', '==', communityId)
-              .where('updatedAt', '>', connectionTime)
-              .orderBy('updatedAt', 'desc');
+            const conversationsQuery = db.collection('privateConversations')
+              .where('participantIds', 'array-contains', userId)
+              .where('communityId', '==', communityId);
 
             const unsubscribeConversations = conversationsQuery.onSnapshot(
               (snapshot) => {

@@ -3,6 +3,7 @@ import HubLayout from '@/components/hub/HubLayout';
 import IssueReporting from '@/components/hub/IssueReporting';
 import { useAuth } from '@/context/AuthContext';
 import { useState, useEffect } from 'react';
+import { authenticatedFetch } from '@/services/api';
 
 export default function HubIssuesPage() {
   const { user } = useAuth();
@@ -17,7 +18,7 @@ export default function HubIssuesPage() {
 
     const loadUserCommunities = async () => {
       try {
-        const response = await fetch(`/api/hub/communities?type=user&userId=${user.uid}`);
+        const response = await authenticatedFetch(`/api/hub/communities?type=user&userId=${user.uid}`);
         if (response.ok) {
           const result = await response.json();
           const communities = result.communities || [];

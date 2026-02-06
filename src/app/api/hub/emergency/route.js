@@ -54,24 +54,32 @@ export async function GET(request) {
       query = query.where('type', '==', type);
     }
 
-    const snapshot = await query
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
+    // Query without orderBy to avoid composite index requirement
+    const snapshot = await query.get();
 
     const data = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.() || null,
-      updatedAt: doc.data().updatedAt?.toDate?.() || null,
-      scheduledAt: doc.data().scheduledAt?.toDate?.() || null,
-      expiresAt: doc.data().expiresAt?.toDate?.() || null
+      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || null,
+      updatedAt: doc.data().updatedAt?.toDate?.()?.toISOString() || null,
+      scheduledAt: doc.data().scheduledAt?.toDate?.()?.toISOString() || null,
+      expiresAt: doc.data().expiresAt?.toDate?.()?.toISOString() || null
     }));
+
+    // Sort by createdAt descending (client-side to avoid composite index)
+    data.sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+
+    // Apply limit after sorting
+    const limitedData = data.slice(0, limit);
 
     return NextResponse.json({
       success: true,
-      data,
-      count: data.length
+      data: limitedData,
+      count: limitedData.length
     });
 
   } catch (error) {

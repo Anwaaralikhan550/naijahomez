@@ -37,8 +37,7 @@ export async function GET(request) {
       }
       query = db
         .collection('joinRequests')
-        .where('userId', '==', requestedUserId)
-        .orderBy('createdAt', 'desc');
+        .where('userId', '==', requestedUserId);
     } else {
       // SECURITY: Verify user is admin/moderator of the community to view all requests
       const memberQuery = await db.collection('hubMembers')
@@ -56,24 +55,33 @@ export async function GET(request) {
         );
       }
 
-      if (status === 'all') {
-        query = db
-          .collection('joinRequests')
-          .where('communityId', '==', communityId)
-          .orderBy('createdAt', 'desc');
-      } else {
-        query = db
-          .collection('joinRequests')
-          .where('communityId', '==', communityId)
-          .where('status', '==', status)
-          .orderBy('createdAt', 'desc');
+      query = db
+        .collection('joinRequests')
+        .where('communityId', '==', communityId);
+      if (status !== 'all') {
+        query = query.where('status', '==', status);
       }
     }
 
     const querySnapshot = await query.get();
     const requests = [];
     querySnapshot.forEach((doc) => {
-      requests.push({ id: doc.id, ...doc.data() });
+      const data = doc.data();
+      // Convert Firestore timestamps to serializable format
+      if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+        data.createdAt = data.createdAt.toDate().toISOString();
+      }
+      if (data.updatedAt && typeof data.updatedAt.toDate === 'function') {
+        data.updatedAt = data.updatedAt.toDate().toISOString();
+      }
+      requests.push({ id: doc.id, ...data });
+    });
+
+    // Sort by createdAt descending (client-side to avoid composite index requirement)
+    requests.sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
     });
 
     return NextResponse.json({ requests });
