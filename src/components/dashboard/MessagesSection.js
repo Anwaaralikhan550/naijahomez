@@ -1,11 +1,11 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { 
-  MessageCircle, 
-  Send, 
-  Inbox, 
-  Calendar, 
-  MapPin, 
+import {
+  MessageCircle,
+  Send,
+  Inbox,
+  Calendar,
+  MapPin,
   Eye,
   Trash2,
   RefreshCw,
@@ -14,6 +14,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import apiService, { authenticatedFetch } from '@/services/api';
 
 const MessagesSection = () => {
   const { user } = useAuth();
@@ -39,14 +40,9 @@ const MessagesSection = () => {
         return;
       }
 
-      const response = await fetch(`/api/messages?type=${activeTab}&userId=${user.uid}`);
-      const result = await response.json();
-
-      if (response.ok) {
-        setMessages(result.messages || []);
-      } else {
-        throw new Error(result.error || 'Failed to load messages');
-      }
+      // Use apiService which automatically includes Firebase auth token
+      const result = await apiService.getMessages(activeTab, user.uid);
+      setMessages(result.messages || []);
     } catch (error) {
       console.error('Error loading messages:', error);
       toast.error('Failed to load messages');
@@ -57,13 +53,13 @@ const MessagesSection = () => {
 
   const markAsRead = async (messageId) => {
     try {
-      const response = await fetch(`/api/messages/${messageId}/read`, {
+      const response = await authenticatedFetch(`/api/messages/${messageId}/read`, {
         method: 'PATCH'
       });
 
       if (response.ok) {
-        setMessages(prev => 
-          prev.map(msg => 
+        setMessages(prev =>
+          prev.map(msg =>
             msg.id === messageId ? { ...msg, isRead: true } : msg
           )
         );
@@ -77,7 +73,7 @@ const MessagesSection = () => {
     if (!confirm('Are you sure you want to delete this message?')) return;
 
     try {
-      const response = await fetch(`/api/messages/${messageId}`, {
+      const response = await authenticatedFetch(`/api/messages/${messageId}`, {
         method: 'DELETE'
       });
 
