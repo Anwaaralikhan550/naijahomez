@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     reactStrictMode: true,
+    // Configure ESLint to not fail build on warnings
+    eslint: {
+      // Warning: This allows production builds to successfully complete even if
+      // ESLint config has serialization issues
+      ignoreDuringBuilds: false,
+    },
     images: {
       // Disable optimization for pre-processed images
       unoptimized: true,
@@ -28,6 +34,12 @@ const nextConfig = {
           port: '',
           pathname: '/properties/**',
         },
+        {
+          protocol: 'https',
+          hostname: 'images.nigeriapropertycentre.com',
+          port: '',
+          pathname: '/properties/images/**',
+        },
         // Placeholder image configuration
         {
           protocol: 'https',
@@ -38,6 +50,32 @@ const nextConfig = {
       ]
     },
     // Webpack configuration removed - all Firebase client imports eliminated
+    async redirects() {
+      return [
+        {
+          source: '/the-hub',
+          destination: '/dashboard/community',
+          permanent: false,
+        },
+        {
+          source: '/the-hub/:path*',
+          destination: '/dashboard/community/:path*',
+          permanent: false,
+        },
+      ];
+    },
+    async rewrites() {
+      return [
+        {
+          source: '/dashboard/community',
+          destination: '/the-hub',
+        },
+        {
+          source: '/dashboard/community/:path*',
+          destination: '/the-hub/:path*',
+        },
+      ];
+    },
   };
 
   module.exports = nextConfig;

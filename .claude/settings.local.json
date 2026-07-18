@@ -33,9 +33,44 @@
       "Bash(git commit:*)",
       "Bash(if exist nul echo \"nul exists\")",
       "Bash(git -C E:/naija rm --cached:*)",
-      "Bash(git -C E:/naija add -A -- . ':!nul')"
+      "Bash(git -C E:/naija add -A -- . ':!nul')",
+      "Bash(git checkout:*)",
+      "Bash(taskkill:*)",
+      "Bash(TASKKILL //F //IM chrome.exe)",
+      "Bash(python3:*)",
+      "Bash(npx next lint:*)",
+      "Bash(npx next build:*)",
+      "Bash(ls:*)",
+      "Bash(dir /B E:naija.playwright-mcp*.png)",
+      "Bash(powershell -Command \"Get-Content ''E:\\\\naija\\\\firestore-properties.json'' -TotalCount 200 | Select-String -Pattern ''ð|\\\\\\\\u|emoji|flag|Nigeria'' -AllMatches | Select-Object -First 20\")",
+      "Bash(findstr:*)",
+      "Bash(powershell -Command:*)",
+      "mcp__playwright__browser_run_code",
+      "Bash(copy:*)",
+      "Bash(git status:*)",
+      "Bash(npx next dev:*)",
+      "Bash(netstat:*)",
+      "mcp__playwright__browser_close",
+      "Bash(dir:*)",
+      "mcp__playwright__browser_install",
+      "mcp__playwright__browser_select_option",
+      "mcp__playwright__browser_file_upload",
+      "Bash(timeout 5 tail:*)",
+      "Bash(git diff:*)",
+      "mcp__playwright__browser_resize",
+      "mcp__playwright__browser_handle_dialog",
+      "Bash(for port in 3000 3001 3002)",
+      "Bash(done)",
+      "Bash(echo:*)",
+      "mcp__playwright__browser_press_key",
+      "Bash(tasklist:*)",
+      "Bash(timeout 30 bash -c 'while ! curl -s -o /dev/null -w \"\"%{http_code}\"\" http://localhost:3004 2>/dev/null | grep -q \"\"200\"\"; do sleep 2; done; echo \"\"Server is ready\"\"')",
+      "Bash(node *)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "disabledMcpjsonServers": [
+    "playwright"
+  ]
 }

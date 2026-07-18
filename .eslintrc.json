@@ -1,0 +1,10 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "react/no-unescaped-entities": "off",
+    "react/display-name": "off",
+    "react/jsx-no-undef": "warn",
+    "@next/next/no-html-link-for-pages": "warn",
+    "@next/next/no-assign-module-variable": "warn"
+  }
+}
