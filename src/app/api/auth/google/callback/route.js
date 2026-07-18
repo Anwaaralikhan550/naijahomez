@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { NextResponse } from 'next/server';
 import authRepository from '@/lib/db/auth-repository.cjs';
 import { issueSession } from '@/lib/auth/session';
+import { getAdminAuth, getAdminFirestore } from '@/lib/firebase-admin';
 import logger from '@/lib/logger';
 
 const STATE_COOKIE = 'g_oauth_state';
@@ -23,6 +24,21 @@ function failureRedirect(reason) {
 
 function generateUserId() {
   return crypto.randomBytes(21).toString('base64url');
+}
+
+// If this email already has a Firebase Auth account (the common case for
+// any existing user, since Google sign-in previously always went through
+// Firebase), reuse that uid instead of minting a new one -- otherwise their
+// existing listings/KYC/messages (all keyed on the Firebase uid) would
+// become invisible under a brand-new identity.
+async function resolveUserId(email) {
+  try {
+    const existingFirebaseUser = await getAdminAuth().getUserByEmail(email);
+    if (existingFirebaseUser?.uid) return existingFirebaseUser.uid;
+  } catch {
+    // auth/user-not-found is the expected case for genuinely new users.
+  }
+  return generateUserId();
 }
 
 export async function GET(request) {
@@ -85,15 +101,31 @@ export async function GET(request) {
     let profile = await authRepository.getUserProfileByEmail(email);
 
     if (!profile) {
+      const userId = await resolveUserId(email);
+      const legacyDoc = await getAdminFirestore().collection('users').doc(userId).get();
+      const legacyData = legacyDoc.exists ? legacyDoc.data() || {} : {};
+
       profile = await authRepository.createUserProfile({
-        userId: generateUserId(),
+        userId,
         email,
-        displayName: googleUser.name || '',
-        photoUrl: googleUser.picture || null,
+        displayName: googleUser.name || legacyData.displayName || '',
+        photoUrl: googleUser.picture || legacyData.photoURL || null,
         signInProvider: 'google',
         emailVerified: true,
         authMigrated: true
       });
+
+      if (legacyData.phoneNumber || legacyData.location || legacyData.bio || legacyData.role || legacyData.isAdmin || legacyData.kycStatus) {
+        await authRepository.updateProfileFields(userId, {
+          phoneNumber: legacyData.phoneNumber || null,
+          location: legacyData.location || null,
+          bio: legacyData.bio || null,
+          role: legacyData.role || 'user',
+          isAdmin: legacyData.isAdmin === true,
+          kycStatus: legacyData.kycStatus || 'unverified'
+        });
+        profile = await authRepository.getUserProfileById(userId);
+      }
     } else if (!profile.emailVerified) {
       // Google already verified this email; reflect that on the profile.
       await authRepository.setEmailVerified(profile.userId, true);
