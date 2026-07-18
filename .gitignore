@@ -58,3 +58,6 @@ qa-screenshots/
 
 # deploy archives (large, environment-specific)
 naija-deploy*.tar.gz
+
+# local Postgres backup dumps
+/backups/
