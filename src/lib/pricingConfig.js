@@ -261,12 +261,12 @@ export const PRICING_PLANS = {
 // FCMB Bank Details for payments
 export const BANK_DETAILS = {
   name: 'First City Monument Bank (FCMB)',
-  accountName: 'NIJAHOMZS LIMITED',
-  accountNumber: '1234567890', // Replace with actual account number
+  accountName: process.env.FCMB_ACCOUNT_NAME || 'Nijahomzs Limited',
+  accountNumber: process.env.FCMB_ACCOUNT_NUMBER || '',
   bankCode: '214',
-  sortCode: '214150149', // Replace with actual sort code
+  sortCode: process.env.FCMB_SORT_CODE || '',
   swiftCode: 'FCMBNGLA',
-  branch: 'Victoria Island Branch, Lagos'
+  branch: process.env.FCMB_BRANCH || ''
 };
 
 // Payment methods configuration
@@ -292,6 +292,45 @@ export const PAYMENT_METHODS = {
       'Secure payment via Paystack',
       'Instant activation after successful payment',
       'Accepts all major Nigerian banks'
+    ]
+  },
+  flutterwave: {
+    name: 'Flutterwave Payment',
+    description: 'Pay securely with card, bank transfer, or USSD via Flutterwave',
+    icon: 'zap',
+    enabled: true,
+    instructions: [
+      'You will be redirected to Flutterwave secure checkout',
+      'Payments are verified automatically',
+      'Promotion is activated instantly after successful verification'
+    ]
+  }
+};
+
+// Flutterwave configuration (env-driven placeholders)
+export const FLUTTERWAVE_CONFIG = {
+  publicKey: process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY || '',
+  secretKey: process.env.FLUTTERWAVE_SECRET_KEY || '',
+  webhookSecretHash: process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH || '',
+  baseUrl: process.env.FLUTTERWAVE_BASE_URL || 'https://api.flutterwave.com/v3',
+  redirectUrl:
+    process.env.FLUTTERWAVE_REDIRECT_URL ||
+    `${process.env.NEXT_PUBLIC_APP_URL || ''}/dashboard?tab=my-ads`
+};
+
+// Listing promotion plans used by payment APIs
+export const PROMOTION_PLANS = {
+  default: {
+    id: 'promotion_7d',
+    name: 'Promoted Listing (7 Days)',
+    amount: 5000,
+    currency: 'NGN',
+    durationDays: 7,
+    provider: 'flutterwave',
+    features: [
+      'Priority placement in sponsored sections',
+      'Promoted badge on listing cards',
+      'Higher visibility for 7 days'
     ]
   }
 };
@@ -338,4 +377,8 @@ export const canUserPostAd = (userPlan, adType) => {
   
   const limit = getUserAdLimit(userPlan, adType);
   return limit === -1 || limit > 0;
+};
+
+export const getPromotionPlanById = (planId = 'default') => {
+  return PROMOTION_PLANS[planId] || PROMOTION_PLANS.default;
 };
