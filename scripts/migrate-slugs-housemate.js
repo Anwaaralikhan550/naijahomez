@@ -1,10 +1,10 @@
-// housemate-migrate-slugs.js
+﻿// housemate-migrate-slugs.js
 const { initializeApp } = require('firebase/app');
 const { getFirestore, collection, query, getDocs, doc, updateDoc } = require('firebase/firestore');
 
 // Your Firebase Config
 const firebaseConfig = {
-  apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY || "your_api_key_here",
   authDomain: "nijahomzs-1ead3.firebaseapp.com",
   projectId: "nijahomzs-1ead3",
   storageBucket: "nijahomzs-1ead3.firebasestorage.app",

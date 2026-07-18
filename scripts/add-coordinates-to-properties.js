@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * Script to add sample coordinates to existing properties
  * For demonstration purposes - in production, use a geocoding service
@@ -9,7 +9,7 @@ const { getFirestore, collection, getDocs, updateDoc, doc } = require('firebase/
 
 // Your Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY || "your_api_key_here",
   authDomain: "nijahomzs-1ead3.firebaseapp.com",
   projectId: "nijahomzs-1ead3",
   storageBucket: "nijahomzs-1ead3.firebasestorage.app",
@@ -63,14 +63,14 @@ function getCoordinatesForLocation(locationString) {
 }
 
 async function addCoordinatesToProperties() {
-  console.log('🚀 Starting to add coordinates to properties...');
+  console.log('ðŸš€ Starting to add coordinates to properties...');
   
   try {
     // Get all properties
     const propertiesSnapshot = await getDocs(collection(db, 'properties'));
     const totalProperties = propertiesSnapshot.size;
     
-    console.log(`📍 Found ${totalProperties} properties to process`);
+    console.log(`ðŸ“ Found ${totalProperties} properties to process`);
     
     let processedCount = 0;
     let updatedCount = 0;
@@ -81,11 +81,11 @@ async function addCoordinatesToProperties() {
       
       processedCount++;
       console.log(`\n[${processedCount}/${totalProperties}] Processing property: ${propertyId}`);
-      console.log(`  📍 Location: ${propertyData.location}`);
+      console.log(`  ðŸ“ Location: ${propertyData.location}`);
       
       // Skip if already has coordinates
       if (propertyData.coordinates && propertyData.coordinates.latitude && propertyData.coordinates.longitude) {
-        console.log('  ✅ Already has coordinates, skipping');
+        console.log('  âœ… Already has coordinates, skipping');
         continue;
       }
       
@@ -99,20 +99,20 @@ async function addCoordinatesToProperties() {
           updatedAt: new Date()
         });
         updatedCount++;
-        console.log(`  ✅ Added coordinates: ${coordinates.latitude}, ${coordinates.longitude}`);
+        console.log(`  âœ… Added coordinates: ${coordinates.latitude}, ${coordinates.longitude}`);
       } catch (error) {
-        console.error(`  ❌ Error updating property ${propertyId}:`, error.message);
+        console.error(`  âŒ Error updating property ${propertyId}:`, error.message);
       }
     }
     
-    console.log('\n🎉 Coordinate addition completed!');
-    console.log(`📊 Summary:`);
+    console.log('\nðŸŽ‰ Coordinate addition completed!');
+    console.log(`ðŸ“Š Summary:`);
     console.log(`  - Total properties processed: ${processedCount}`);
     console.log(`  - Properties updated: ${updatedCount}`);
     console.log(`  - Properties skipped: ${processedCount - updatedCount}`);
     
   } catch (error) {
-    console.error('❌ Script failed:', error);
+    console.error('âŒ Script failed:', error);
     process.exit(1);
   }
 }
@@ -121,11 +121,11 @@ async function addCoordinatesToProperties() {
 if (require.main === module) {
   addCoordinatesToProperties()
     .then(() => {
-      console.log('✅ Script completed successfully');
+      console.log('âœ… Script completed successfully');
       process.exit(0);
     })
     .catch((error) => {
-      console.error('❌ Script failed:', error);
+      console.error('âŒ Script failed:', error);
       process.exit(1);
     });
 }

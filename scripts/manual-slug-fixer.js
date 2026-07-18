@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * Manual Slug Fixer - Run this yourself to fix specific duplicate slugs
  * 
@@ -13,7 +13,7 @@ const { getFirestore, collection, getDocs, updateDoc, doc, query, where } = requ
 
 // Your Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY || "your_api_key_here",
   authDomain: "nijahomzs-1ead3.firebaseapp.com",
   projectId: "nijahomzs-1ead3",
   storageBucket: "nijahomzs-1ead3.firebasestorage.app",
@@ -49,7 +49,7 @@ function generateUniqueSlug(title, docId) {
 
 // List all duplicate slugs
 async function listDuplicates() {
-  console.log('🔍 Finding duplicate slugs...');
+  console.log('ðŸ” Finding duplicate slugs...');
   
   try {
     const snapshot = await getDocs(collection(db, 'properties'));
@@ -66,14 +66,14 @@ async function listDuplicates() {
     const duplicateSlugs = Object.keys(slugCounts).filter(slug => slugCounts[slug] > 1);
     
     if (duplicateSlugs.length === 0) {
-      console.log('✅ No duplicate slugs found!');
+      console.log('âœ… No duplicate slugs found!');
       return;
     }
     
-    console.log(`\\n❌ Found ${duplicateSlugs.length} duplicate slugs:`);
+    console.log(`\\nâŒ Found ${duplicateSlugs.length} duplicate slugs:`);
     
     duplicateSlugs.forEach(slug => {
-      console.log(`\\n📍 Slug: "${slug}" (used ${slugCounts[slug]} times)`);
+      console.log(`\\nðŸ“ Slug: "${slug}" (used ${slugCounts[slug]} times)`);
       const duplicateProperties = properties.filter(p => p.data.slug === slug);
       
       duplicateProperties.forEach((prop, index) => {
@@ -82,33 +82,33 @@ async function listDuplicates() {
       });
     });
     
-    console.log(`\\n💡 To fix a specific slug, run:`);
+    console.log(`\\nðŸ’¡ To fix a specific slug, run:`);
     console.log(`node scripts/manual-slug-fixer.js --fix-slug "slug-name-here"`);
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('âŒ Error:', error.message);
   }
 }
 
 // Fix a specific duplicate slug
 async function fixSlug(targetSlug) {
-  console.log(`🔧 Fixing properties with slug: "${targetSlug}"`);
+  console.log(`ðŸ”§ Fixing properties with slug: "${targetSlug}"`);
   
   try {
     const q = query(collection(db, 'properties'), where('slug', '==', targetSlug));
     const snapshot = await getDocs(q);
     
     if (snapshot.empty) {
-      console.log('❌ No properties found with that slug');
+      console.log('âŒ No properties found with that slug');
       return;
     }
     
     if (snapshot.size === 1) {
-      console.log('✅ Only one property found with that slug - no duplicates!');
+      console.log('âœ… Only one property found with that slug - no duplicates!');
       return;
     }
     
-    console.log(`📍 Found ${snapshot.size} properties with duplicate slug:`);
+    console.log(`ðŸ“ Found ${snapshot.size} properties with duplicate slug:`);
     
     const updates = [];
     snapshot.forEach((doc, index) => {
@@ -128,14 +128,14 @@ async function fixSlug(targetSlug) {
     });
     
     // Ask for confirmation
-    console.log(`\\n❓ Do you want to update these ${updates.length} properties? (y/N)`);
+    console.log(`\\nâ“ Do you want to update these ${updates.length} properties? (y/N)`);
     
     // In a real scenario, you'd use readline, but for simplicity:
-    console.log('\\n⚠️  Add --confirm flag to actually perform the update');
+    console.log('\\nâš ï¸  Add --confirm flag to actually perform the update');
     console.log('Example: node scripts/manual-slug-fixer.js --fix-slug "your-slug" --confirm');
     
     if (process.argv.includes('--confirm')) {
-      console.log('\\n🚀 Updating properties...');
+      console.log('\\nðŸš€ Updating properties...');
       
       for (const update of updates) {
         try {
@@ -143,23 +143,23 @@ async function fixSlug(targetSlug) {
             slug: update.newSlug,
             updatedAt: new Date()
           });
-          console.log(`✅ Updated: ${update.id} -> "${update.newSlug}"`);
+          console.log(`âœ… Updated: ${update.id} -> "${update.newSlug}"`);
         } catch (error) {
-          console.error(`❌ Failed to update ${update.id}: ${error.message}`);
+          console.error(`âŒ Failed to update ${update.id}: ${error.message}`);
         }
       }
       
-      console.log('\\n🎉 Slug fixing completed!');
+      console.log('\\nðŸŽ‰ Slug fixing completed!');
     }
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('âŒ Error:', error.message);
   }
 }
 
 // Fix ALL duplicate slugs
 async function fixAllDuplicates() {
-  console.log('🔧 Fixing ALL duplicate slugs...');
+  console.log('ðŸ”§ Fixing ALL duplicate slugs...');
   
   try {
     const snapshot = await getDocs(collection(db, 'properties'));
@@ -176,19 +176,19 @@ async function fixAllDuplicates() {
     const duplicateSlugs = Object.keys(slugCounts).filter(slug => slugCounts[slug] > 1);
     
     if (duplicateSlugs.length === 0) {
-      console.log('✅ No duplicate slugs found!');
+      console.log('âœ… No duplicate slugs found!');
       return;
     }
     
-    console.log(`📍 Found ${duplicateSlugs.length} duplicate slugs affecting ${duplicateSlugs.reduce((sum, slug) => sum + slugCounts[slug], 0)} properties`);
+    console.log(`ðŸ“ Found ${duplicateSlugs.length} duplicate slugs affecting ${duplicateSlugs.reduce((sum, slug) => sum + slugCounts[slug], 0)} properties`);
     
     if (!process.argv.includes('--confirm')) {
-      console.log('\\n⚠️  Add --confirm flag to actually perform the update');
+      console.log('\\nâš ï¸  Add --confirm flag to actually perform the update');
       console.log('Example: node scripts/manual-slug-fixer.js --fix-all-duplicates --confirm');
       return;
     }
     
-    console.log('\\n🚀 Updating all duplicate slugs...');
+    console.log('\\nðŸš€ Updating all duplicate slugs...');
     let updated = 0;
     let errors = 0;
     
@@ -202,19 +202,19 @@ async function fixAllDuplicates() {
             slug: newSlug,
             updatedAt: new Date()
           });
-          console.log(`✅ Updated: ${prop.id} | "${prop.data.title}" -> "${newSlug}"`);
+          console.log(`âœ… Updated: ${prop.id} | "${prop.data.title}" -> "${newSlug}"`);
           updated++;
         } catch (error) {
-          console.error(`❌ Failed to update ${prop.id}: ${error.message}`);
+          console.error(`âŒ Failed to update ${prop.id}: ${error.message}`);
           errors++;
         }
       }
     }
     
-    console.log(`\\n🎉 Completed! Updated: ${updated}, Errors: ${errors}`);
+    console.log(`\\nðŸŽ‰ Completed! Updated: ${updated}, Errors: ${errors}`);
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('âŒ Error:', error.message);
   }
 }
 
@@ -228,7 +228,7 @@ async function main() {
     const slugIndex = args.indexOf('--fix-slug');
     const targetSlug = args[slugIndex + 1];
     if (!targetSlug) {
-      console.error('❌ Please provide a slug to fix');
+      console.error('âŒ Please provide a slug to fix');
       console.log('Example: node scripts/manual-slug-fixer.js --fix-slug "3-bedroom-flat-apartment-for-rent"');
       return;
     }
@@ -236,7 +236,7 @@ async function main() {
   } else if (args.includes('--fix-all-duplicates')) {
     await fixAllDuplicates();
   } else {
-    console.log('📖 Usage:');
+    console.log('ðŸ“– Usage:');
     console.log('  node scripts/manual-slug-fixer.js --list-duplicates');
     console.log('  node scripts/manual-slug-fixer.js --fix-slug "slug-name"');
     console.log('  node scripts/manual-slug-fixer.js --fix-slug "slug-name" --confirm');
@@ -248,6 +248,6 @@ async function main() {
 
 // Run the script
 main().catch(error => {
-  console.error('❌ Script failed:', error);
+  console.error('âŒ Script failed:', error);
   process.exit(1);
 });

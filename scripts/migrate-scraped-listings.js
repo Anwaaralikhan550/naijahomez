@@ -13,10 +13,7 @@ const {
   collection, 
   getDocs, 
   doc, 
-  updateDoc, 
-  writeBatch,
-  query,
-  limit
+  writeBatch
 } = require('firebase/firestore');
 
 // Firebase config (you might want to use environment variables)
@@ -128,6 +125,13 @@ function processListing(listing, docId) {
   return needsUpdate ? updates : null;
 }
 
+function normalizeForDedup(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Process a collection
  */
@@ -144,12 +148,39 @@ async function processCollection(collectionName) {
     let updatedCount = 0;
     let scrapedCount = 0;
     
-    const batch = writeBatch(db);
+    let batch = writeBatch(db);
     let batchOps = 0;
     const MAX_BATCH_SIZE = 500;
+    const seenByTitleLocation = new Map();
+    let duplicateCount = 0;
+    let deletedCount = 0;
 
     for (const document of snapshot.docs) {
       const listing = document.data();
+      const titleKey = normalizeForDedup(listing.title);
+      const locationKey = normalizeForDedup(listing.location);
+      const dedupKey = `${titleKey}::${locationKey}`;
+
+      if (titleKey && locationKey) {
+        if (seenByTitleLocation.has(dedupKey)) {
+          duplicateCount++;
+
+          if (!isDryRun) {
+            batch.delete(doc(db, collectionName, document.id));
+            batchOps++;
+            deletedCount++;
+          }
+
+          processedCount++;
+          if (processedCount % 100 === 0) {
+            console.log(`   Processed ${processedCount}/${snapshot.docs.length} documents`);
+          }
+          continue;
+        }
+
+        seenByTitleLocation.set(dedupKey, document.id);
+      }
+
       const updates = processListing(listing, document.id);
       
       if (updates) {
@@ -165,6 +196,7 @@ async function processCollection(collectionName) {
           if (batchOps >= MAX_BATCH_SIZE) {
             await batch.commit();
             console.log(`   💾 Committed batch of ${batchOps} updates`);
+            batch = writeBatch(db);
             batchOps = 0;
           }
         }
@@ -176,7 +208,7 @@ async function processCollection(collectionName) {
       
       // Progress indicator
       if (processedCount % 100 === 0) {
-        console.log(`   ⏳ Processed ${processedCount}/${snapshot.docs.length} documents`);
+            console.log(`   Processed ${processedCount}/${snapshot.docs.length} documents`);
       }
     }
     
@@ -189,13 +221,15 @@ async function processCollection(collectionName) {
     console.log(`   ✅ Collection complete:`);
     console.log(`      - Processed: ${processedCount} documents`);
     console.log(`      - Updated: ${updatedCount} documents`);
+    console.log(`      - Duplicates found (title+location): ${duplicateCount} documents`);
+    console.log(`      - Duplicates deleted: ${deletedCount} documents`);
     console.log(`      - Scraped listings found: ${scrapedCount} documents`);
     
-    return { processedCount, updatedCount, scrapedCount };
+    return { processedCount, updatedCount, scrapedCount, duplicateCount, deletedCount };
     
   } catch (error) {
     console.error(`   ❌ Error processing ${collectionName}:`, error);
-    return { processedCount: 0, updatedCount: 0, scrapedCount: 0 };
+    return { processedCount: 0, updatedCount: 0, scrapedCount: 0, duplicateCount: 0, deletedCount: 0 };
   }
 }
 
@@ -210,17 +244,23 @@ async function runMigration() {
   let totalProcessed = 0;
   let totalUpdated = 0;
   let totalScraped = 0;
+  let totalDuplicates = 0;
+  let totalDeleted = 0;
   
   for (const collectionName of collections) {
     const results = await processCollection(collectionName);
     totalProcessed += results.processedCount;
     totalUpdated += results.updatedCount;
     totalScraped += results.scrapedCount;
+    totalDuplicates += results.duplicateCount;
+    totalDeleted += results.deletedCount;
   }
   
   console.log('\n📊 Migration Summary:');
   console.log(`   Total documents processed: ${totalProcessed}`);
   console.log(`   Total documents updated: ${totalUpdated}`);
+  console.log(`   Total duplicates found (title+location): ${totalDuplicates}`);
+  console.log(`   Total duplicates deleted: ${totalDeleted}`);
   console.log(`   Total scraped listings identified: ${totalScraped}`);
   console.log(`   Mode: ${isDryRun ? 'DRY RUN' : 'LIVE UPDATE'}`);
   

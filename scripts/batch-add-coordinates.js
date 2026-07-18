@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * Batch script to add sample coordinates to existing properties
  * Processes properties in batches to handle large datasets
@@ -9,7 +9,7 @@ const { getFirestore, collection, getDocs, updateDoc, doc, query, where, limit, 
 
 // Your Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY || "your_api_key_here",
   authDomain: "nijahomzs-1ead3.firebaseapp.com",
   projectId: "nijahomzs-1ead3",
   storageBucket: "nijahomzs-1ead3.firebasestorage.app",
@@ -65,7 +65,7 @@ function getCoordinatesForLocation(locationString) {
 }
 
 async function batchAddCoordinates() {
-  console.log('🚀 Starting batch coordinate addition...');
+  console.log('ðŸš€ Starting batch coordinate addition...');
   
   try {
     const BATCH_SIZE = 50;
@@ -74,7 +74,7 @@ async function batchAddCoordinates() {
     let lastDoc = null;
     
     while (true) {
-      console.log(`\n📦 Processing batch starting from document ${totalProcessed + 1}...`);
+      console.log(`\nðŸ“¦ Processing batch starting from document ${totalProcessed + 1}...`);
       
       // Build query with pagination
       let q = query(
@@ -93,11 +93,11 @@ async function batchAddCoordinates() {
       const snapshot = await getDocs(q);
       
       if (snapshot.empty) {
-        console.log('✅ No more documents to process');
+        console.log('âœ… No more documents to process');
         break;
       }
       
-      console.log(`📍 Found ${snapshot.size} properties in this batch`);
+      console.log(`ðŸ“ Found ${snapshot.size} properties in this batch`);
       
       let batchProcessed = 0;
       let batchUpdated = 0;
@@ -127,15 +127,15 @@ async function batchAddCoordinates() {
           totalUpdated++;
           
           if (batchUpdated % 10 === 0) {
-            console.log(`  ✅ Updated ${batchUpdated} properties in this batch...`);
+            console.log(`  âœ… Updated ${batchUpdated} properties in this batch...`);
           }
         } catch (error) {
-          console.error(`  ❌ Error updating property ${propertyId}:`, error.message);
+          console.error(`  âŒ Error updating property ${propertyId}:`, error.message);
         }
       }
       
-      console.log(`📊 Batch complete: ${batchUpdated} updated out of ${batchProcessed} processed`);
-      console.log(`📈 Total progress: ${totalUpdated} updated out of ${totalProcessed} processed`);
+      console.log(`ðŸ“Š Batch complete: ${batchUpdated} updated out of ${batchProcessed} processed`);
+      console.log(`ðŸ“ˆ Total progress: ${totalUpdated} updated out of ${totalProcessed} processed`);
       
       // Set last document for pagination
       lastDoc = snapshot.docs[snapshot.docs.length - 1];
@@ -144,14 +144,14 @@ async function batchAddCoordinates() {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
-    console.log('\n🎉 Batch coordinate addition completed!');
-    console.log(`📊 Final Summary:`);
+    console.log('\nðŸŽ‰ Batch coordinate addition completed!');
+    console.log(`ðŸ“Š Final Summary:`);
     console.log(`  - Total properties processed: ${totalProcessed}`);
     console.log(`  - Properties updated: ${totalUpdated}`);
     console.log(`  - Properties skipped: ${totalProcessed - totalUpdated}`);
     
   } catch (error) {
-    console.error('❌ Script failed:', error);
+    console.error('âŒ Script failed:', error);
     process.exit(1);
   }
 }
@@ -160,11 +160,11 @@ async function batchAddCoordinates() {
 if (require.main === module) {
   batchAddCoordinates()
     .then(() => {
-      console.log('✅ Script completed successfully');
+      console.log('âœ… Script completed successfully');
       process.exit(0);
     })
     .catch((error) => {
-      console.error('❌ Script failed:', error);
+      console.error('âŒ Script failed:', error);
       process.exit(1);
     });
 }

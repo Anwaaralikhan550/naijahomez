@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * Script to fix duplicate property slugs by making them unique
  * Uses property ID to ensure uniqueness
@@ -9,7 +9,7 @@ const { getFirestore, collection, getDocs, updateDoc, doc } = require('firebase/
 
 // Your Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyCeUNqySxbTnTtzyh8fUeWfzVAgckmrUIU",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY || "your_api_key_here",
   authDomain: "nijahomzs-1ead3.firebaseapp.com",
   projectId: "nijahomzs-1ead3",
   storageBucket: "nijahomzs-1ead3.firebasestorage.app",
@@ -47,14 +47,14 @@ function generateUniqueSlug(title, docId) {
 }
 
 async function fixDuplicateSlugs() {
-  console.log('🔧 Starting to fix duplicate property slugs...');
+  console.log('ðŸ”§ Starting to fix duplicate property slugs...');
   
   try {
     // Get all properties
     const propertiesSnapshot = await getDocs(collection(db, 'properties'));
     const totalProperties = propertiesSnapshot.size;
     
-    console.log(`📍 Found ${totalProperties} properties to process`);
+    console.log(`ðŸ“ Found ${totalProperties} properties to process`);
     
     // Track slugs to identify duplicates
     const slugCounts = {};
@@ -76,7 +76,7 @@ async function fixDuplicateSlugs() {
     
     // Find duplicate slugs
     const duplicateSlugs = Object.keys(slugCounts).filter(slug => slugCounts[slug] > 1);
-    console.log(`❌ Found ${duplicateSlugs.length} duplicate slugs affecting ${duplicateSlugs.reduce((sum, slug) => sum + slugCounts[slug], 0)} properties`);
+    console.log(`âŒ Found ${duplicateSlugs.length} duplicate slugs affecting ${duplicateSlugs.reduce((sum, slug) => sum + slugCounts[slug], 0)} properties`);
     
     if (duplicateSlugs.length > 0) {
       console.log('Duplicate slugs:', duplicateSlugs.slice(0, 10).map(slug => `"${slug}" (${slugCounts[slug]} times)`).join(', '));
@@ -93,12 +93,12 @@ async function fixDuplicateSlugs() {
     for (const property of properties) {
       processedCount++;
       console.log(`\\n[${processedCount}/${totalProperties}] Processing: ${property.id}`);
-      console.log(`  📝 Title: "${property.data.title || 'No title'}"`);
-      console.log(`  🔗 Current slug: "${property.data.slug || 'No slug'}"`);
+      console.log(`  ðŸ“ Title: "${property.data.title || 'No title'}"`);
+      console.log(`  ðŸ”— Current slug: "${property.data.slug || 'No slug'}"`);
       
       // Generate new unique slug
       const newSlug = generateUniqueSlug(property.data.title || 'property', property.id);
-      console.log(`  ✨ New slug: "${newSlug}"`);
+      console.log(`  âœ¨ New slug: "${newSlug}"`);
       
       // Only update if slug has changed
       if (property.data.slug !== newSlug) {
@@ -108,37 +108,37 @@ async function fixDuplicateSlugs() {
             updatedAt: new Date()
           });
           updatedCount++;
-          console.log(`  ✅ Updated successfully`);
+          console.log(`  âœ… Updated successfully`);
         } catch (error) {
           const errorMsg = `Failed to update ${property.id}: ${error.message}`;
           errors.push(errorMsg);
-          console.error(`  ❌ ${errorMsg}`);
+          console.error(`  âŒ ${errorMsg}`);
         }
       } else {
-        console.log(`  ➖ No change needed`);
+        console.log(`  âž– No change needed`);
       }
       
       // Add small delay to avoid overwhelming Firestore
       if (processedCount % 10 === 0) {
-        console.log(`⏳ Processed ${processedCount} properties... taking a brief pause`);
+        console.log(`â³ Processed ${processedCount} properties... taking a brief pause`);
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
     
-    console.log('\\n🎉 Slug fixing completed!');
-    console.log(`📊 Summary:`);
+    console.log('\\nðŸŽ‰ Slug fixing completed!');
+    console.log(`ðŸ“Š Summary:`);
     console.log(`  - Total properties processed: ${processedCount}`);
     console.log(`  - Properties updated: ${updatedCount}`);
     console.log(`  - Properties unchanged: ${processedCount - updatedCount}`);
     console.log(`  - Errors encountered: ${errors.length}`);
     
     if (errors.length > 0) {
-      console.log('\\n❌ Errors:');
+      console.log('\\nâŒ Errors:');
       errors.forEach(error => console.log(`  - ${error}`));
     }
     
     // Verify no duplicates remain
-    console.log('\\n🔍 Verifying no duplicate slugs remain...');
+    console.log('\\nðŸ” Verifying no duplicate slugs remain...');
     const verificationSnapshot = await getDocs(collection(db, 'properties'));
     const finalSlugs = {};
     
@@ -152,13 +152,13 @@ async function fixDuplicateSlugs() {
     const remainingDuplicates = Object.keys(finalSlugs).filter(slug => finalSlugs[slug] > 1);
     
     if (remainingDuplicates.length === 0) {
-      console.log('✅ SUCCESS: No duplicate slugs found!');
+      console.log('âœ… SUCCESS: No duplicate slugs found!');
     } else {
-      console.log(`⚠️  WARNING: ${remainingDuplicates.length} duplicate slugs still exist:`, remainingDuplicates);
+      console.log(`âš ï¸  WARNING: ${remainingDuplicates.length} duplicate slugs still exist:`, remainingDuplicates);
     }
     
   } catch (error) {
-    console.error('❌ Script failed:', error);
+    console.error('âŒ Script failed:', error);
     process.exit(1);
   }
 }
@@ -167,11 +167,11 @@ async function fixDuplicateSlugs() {
 if (require.main === module) {
   fixDuplicateSlugs()
     .then(() => {
-      console.log('✅ Script completed successfully');
+      console.log('âœ… Script completed successfully');
       process.exit(0);
     })
     .catch((error) => {
-      console.error('❌ Script failed:', error);
+      console.error('âŒ Script failed:', error);
       process.exit(1);
     });
 }
