@@ -6,6 +6,8 @@ import { GeolocationProvider } from '@/context/GeolocationContext';
 import { AuthProvider } from '@/context/AuthContext';
 import AuthErrorBoundary from '@/components/auth/AuthErrorBoundary';
 import { Toaster } from 'react-hot-toast';
+import ScrollToTop from '@/components/shared/ScrollToTop';
+import AnalyticsProvider from '@/components/analytics/AnalyticsProvider';
 
 export const metadata = {
   title: 'Nijahomzs - Properties, Marketplace & Services',
@@ -28,39 +30,31 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col">
-        <AuthErrorBoundary>
-          <AuthProvider>
-            <GeolocationProvider>
-              <Header />
-              <main className="flex-grow">
-                {children}
-              </main>
-              <Footer />
-              <Toaster 
-                position="top-right"
-                toastOptions={{
-                  duration: 4000,
-                  style: {
-                    background: '#363636',
-                    color: '#fff',
-                  },
-                  success: {
-                    duration: 3000,
-                    theme: {
-                      primary: '#4aed88',
-                    },
-                  },
-                  error: {
-                    duration: 5000,
-                    theme: {
-                      primary: '#f56565',
-                    },
-                  },
-                }}
-              />
-            </GeolocationProvider>
-          </AuthProvider>
-        </AuthErrorBoundary>
+        <AnalyticsProvider>
+          <AuthErrorBoundary>
+            <AuthProvider>
+              <GeolocationProvider>
+                <Header />
+                <main className="flex-grow pb-20 md:pb-0">
+                  {children}
+                </main>
+                {/* Global footer for all routes */}
+                <Footer />
+                <Toaster 
+                  position="top-right"
+                  toastOptions={{
+                    duration: 4000,
+                    style: {
+                      background: '#363636',
+                      color: '#fff',
+                    }
+                  }}
+                />
+                <ScrollToTop />
+              </GeolocationProvider>
+            </AuthProvider>
+          </AuthErrorBoundary>
+        </AnalyticsProvider>
       </body>
     </html>
   );

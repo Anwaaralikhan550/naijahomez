@@ -36,7 +36,7 @@ export default function HubAdminPage() {
 
       // If not authenticated, redirect to login
       if (!user) {
-        const redirectUrl = encodeURIComponent('/the-hub/admin');
+        const redirectUrl = encodeURIComponent('/dashboard/community/admin');
         router.replace(`/login?redirect=${redirectUrl}`);
         return;
       }
@@ -106,7 +106,7 @@ export default function HubAdminPage() {
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Error</h2>
           <p className="text-gray-600 mb-4">{roleCheckState.error}</p>
           <button
-            onClick={() => router.push('/the-hub')}
+            onClick={() => router.push('/dashboard/community')}
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -132,14 +132,14 @@ export default function HubAdminPage() {
           </p>
           <div className="space-y-3">
             <button
-              onClick={() => router.push('/the-hub/dashboard')}
+              onClick={() => router.push('/dashboard/community/dashboard')}
               className="w-full inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Go to Hub Dashboard
+              Go to Community Hub
             </button>
             <button
-              onClick={() => router.push('/the-hub/communities')}
+              onClick={() => router.push('/dashboard/community/communities')}
               className="w-full inline-flex items-center justify-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
             >
               Browse Communities
@@ -157,3 +157,4 @@ export default function HubAdminPage() {
     </HubLayout>
   );
 }
+

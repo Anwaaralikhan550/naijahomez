@@ -3,7 +3,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { Mail, Lock, User, Loader2 } from 'lucide-react';
+import { Mail, Lock, User, Loader2, Eye, EyeOff } from 'lucide-react';
+
+const STRONG_PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -11,10 +13,13 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [passwordHint, setPasswordHint] = useState('');
 
   // Get redirect URL from query parameters
   const getRedirectUrl = () => {
@@ -28,6 +33,18 @@ export default function RegisterPage() {
     }
     return '/dashboard';
   };
+
+  const getLoginUrl = () => {
+    const redirectUrl = getRedirectUrl();
+    return redirectUrl === '/dashboard'
+      ? '/login'
+      : `/login?redirect=${encodeURIComponent(redirectUrl)}`;
+  };
+
+  const isClaimRedirect = (url) => (
+    typeof url === 'string' &&
+    (url.startsWith('/claim?') || url.startsWith('/claim/batch?') || url.startsWith('/dashboard?tab=my-ads') || url.startsWith('/dashboard/edit-property'))
+  );
 
   // Monitor auth state to handle already logged-in users
   useEffect(() => {
@@ -73,8 +90,8 @@ export default function RegisterPage() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (!STRONG_PASSWORD_REGEX.test(password)) {
+      setError('Password must be at least 8 characters and include 1 uppercase letter, 1 number, and 1 special character.');
       return;
     }
 
@@ -93,13 +110,17 @@ export default function RegisterPage() {
       if (user) {
         console.log('Registration successful, user:', user.uid);
         
-        if (needsVerification) {
+        const redirectUrl = getRedirectUrl();
+        if (isClaimRedirect(redirectUrl)) {
+          try {
+            sessionStorage.setItem('claimAccessGranted', 'true');
+          } catch {}
+          router.replace(redirectUrl);
+        } else if (needsVerification) {
           // Redirect to email verification page
-          const redirectUrl = getRedirectUrl();
           router.replace(`/verify-email?continueUrl=${encodeURIComponent(redirectUrl)}`);
         } else {
           // Google users don't need verification, go to dashboard
-          const redirectUrl = getRedirectUrl();
           router.replace(redirectUrl);
         }
       } else {
@@ -153,7 +174,7 @@ export default function RegisterPage() {
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             Or{' '}
-            <Link href="/login" className="font-medium text-blue-600 hover:text-blue-500">
+            <Link href={getLoginUrl()} className="font-medium text-blue-600 hover:text-blue-500">
               sign in to your account
             </Link>
           </p>
@@ -179,6 +200,9 @@ export default function RegisterPage() {
                   id="email"
                   name="email"
                   type="email"
+                  autoComplete="email"
+                  inputMode="email"
+                  spellCheck={false}
                   required
                   className="appearance-none rounded-lg relative block w-full pl-10 px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                   placeholder="Email address"
@@ -199,14 +223,38 @@ export default function RegisterPage() {
                 <input
                   id="password"
                   name="password"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
-                  className="appearance-none rounded-lg relative block w-full pl-10 px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                  className="appearance-none rounded-lg relative block w-full pl-10 pr-10 px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                   placeholder="Password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    const nextPassword = e.target.value;
+                    setPassword(nextPassword);
+                    if (!nextPassword || STRONG_PASSWORD_REGEX.test(nextPassword)) {
+                      setPasswordHint('');
+                    }
+                  }}
+                  onBlur={() => {
+                    if (password && !STRONG_PASSWORD_REGEX.test(password)) {
+                      setPasswordHint('Use at least 8 characters with 1 uppercase letter, 1 number, and 1 special character.');
+                    } else {
+                      setPasswordHint('');
+                    }
+                  }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
               </div>
+              {passwordHint && (
+                <p className="mt-2 text-sm text-red-600">{passwordHint}</p>
+              )}
             </div>
 
             <div>
@@ -220,13 +268,21 @@ export default function RegisterPage() {
                 <input
                   id="confirm-password"
                   name="confirm-password"
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   required
-                  className="appearance-none rounded-lg relative block w-full pl-10 px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                  className="appearance-none rounded-lg relative block w-full pl-10 pr-10 px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                   placeholder="Confirm Password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                >
+                  {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
               </div>
             </div>
           </div>

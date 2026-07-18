@@ -71,8 +71,8 @@ function HubFeedContent() {
         <div className="text-center py-12">
           <h2 className="text-xl font-semibold text-gray-900 mb-2">No Communities Found</h2>
           <p className="text-gray-600 mb-4">You need to join a community to view the social feed.</p>
-          <a href="/the-hub" className="text-blue-600 hover:underline">
-            Return to Hub Dashboard
+          <a href="/dashboard/community" className="text-blue-600 hover:underline">
+            Return to Community Hub
           </a>
         </div>
       </HubLayout>

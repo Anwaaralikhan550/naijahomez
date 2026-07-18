@@ -2,12 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Home, ShoppingCart, Wrench, MapPin, Bed, Bath, Loader2, Bell } from 'lucide-react';
+import Image from 'next/image';
+import { Home, ShoppingCart, Wrench, MapPin, Bed, Bath, Bell, Star } from 'lucide-react';
 import { useFeaturedProperties, useFeaturedTradespeople } from '@/hooks/useApiCache';
 import apiService from '@/services/api';
 import WhyChooseSection from '@/components/home/WhyChooseSection';
 import FeaturedNotices from '@/components/home/FeaturedNotices';
 import FeaturedHousemates from '@/components/home/FeaturedHousemates';
+import SponsoredAdSlot from '@/components/advertising/SponsoredAdSlot';
+import { trackJourneyStep } from '@/lib/analytics/events';
+import { SourceWatermarkCover } from '@/components/property/ImageGallery';
 
 // Placeholder Component for Loading Featured Items
 const FeaturedItemPlaceholder = () => (
@@ -20,6 +24,15 @@ const FeaturedItemPlaceholder = () => (
     </div>
   </div>
 );
+
+function shouldForceWatermark(item) {
+  return Boolean(
+    item?.isScraped ||
+    item?.isScrapedData ||
+    item?.dataSource === 'scraped' ||
+    item?.sourceUrl
+  );
+}
 
 export default function HomePage() {
   // Use caching hooks for all sections
@@ -41,6 +54,51 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showVideoModal, setShowVideoModal] = useState(false);
+
+  useEffect(() => {
+    trackJourneyStep('landing', { source: 'home' });
+  }, []);
+
+  const parseDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate && typeof value.toDate === 'function') return value.toDate();
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPromotedActive = (item) => {
+    if (!item?.isPromoted) return false;
+    const expiry = parseDateValue(item?.promotionExpiry);
+    if (!expiry) return true;
+    return expiry.getTime() > Date.now();
+  };
+
+  const sponsoredListings = [
+    ...featuredProperties.map((item) => ({ ...item, __listingType: 'property' })),
+    ...featuredMarketplace.map((item) => ({ ...item, __listingType: 'marketplace' }))
+  ]
+    .filter((item) => isPromotedActive(item))
+    .slice(0, 4);
+
+  const showMarketplaceSection = isLoading || (!error && featuredMarketplace.length > 0);
+  const showTradespeopleSection = isLoading || (!error && featuredTradespeople.length > 0);
+
+  const buildSafeListingHref = (basePath, item) => {
+    const rawSlug = item?.slug;
+    const rawId = item?.id;
+    const safeSlug =
+      typeof rawSlug === 'string' || typeof rawSlug === 'number'
+        ? String(rawSlug).trim()
+        : '';
+    const safeId =
+      typeof rawId === 'string' || typeof rawId === 'number'
+        ? String(rawId).trim()
+        : '';
+    const segment = safeSlug || safeId;
+    if (!segment) return basePath;
+    return `${basePath}/${encodeURIComponent(segment)}`;
+  };
 
   // Process properties data when it changes
   useEffect(() => {
@@ -122,15 +180,15 @@ export default function HomePage() {
   return (
     <div>
       {/* Hero Section */}
-      <div 
-        className="relative flex items-center justify-center"
-        style={{
-          backgroundImage: "url('/mosaic-banner.jpg')",
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          minHeight: '600px'
-        }}
-      >
+      <div className="relative flex min-h-[600px] items-center justify-center">
+        <Image
+          src="/mosaic-banner.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover"
+        />
         <div className="absolute inset-0 bg-blue-600/40" />
         
         <div className="relative z-10 w-full max-w-6xl mx-auto px-4">
@@ -294,6 +352,42 @@ export default function HomePage() {
         </div>
       </div>
 
+      {sponsoredListings.length > 0 && (
+        <div className="bg-amber-50 border-y border-amber-200 py-10">
+          <div className="max-w-6xl mx-auto px-4">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-amber-900 inline-flex items-center gap-2">
+                <Star size={20} />
+                Sponsored Listings
+              </h2>
+              <Link
+                href="/dashboard?tab=my-ads&action=promote"
+                className="text-amber-700 hover:text-amber-800 text-sm font-medium"
+              >
+                Promote Your Listing
+              </Link>
+            </div>
+            <div className="grid md:grid-cols-4 gap-4">
+              {sponsoredListings.map((item) => (
+                <Link
+                  key={`sponsored-${item.id}`}
+                  href={buildSafeListingHref(item.__listingType === 'property' ? '/property' : '/marketplace', item)}
+                  className="bg-white border border-amber-100 rounded-lg p-3 hover:shadow-md transition-shadow"
+                >
+                  <p className="text-sm font-semibold text-blue-900 line-clamp-1">{item.title}</p>
+                  <p className="text-xs text-gray-600 line-clamp-1 mt-1">{item.location}</p>
+                  <p className="text-sm font-bold text-blue-800 mt-2">{item.rate || item.priceString || item.price || 'View details'}</p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <SponsoredAdSlot slot="home_between_listings" variant="banner" />
+      </div>
+
       {/* Featured Properties Section */}
       <div className="bg-gray-50 py-16">
         <div className="max-w-6xl mx-auto px-4">
@@ -341,36 +435,41 @@ export default function HomePage() {
               </button>
             </div>
           ) : featuredProperties.length > 0 ? (
-            <div className="grid md:grid-cols-4 gap-6">
+            <div className="grid md:grid-cols-4 gap-6 [grid-auto-rows:1fr]">
               {featuredProperties.map((property) => (
                 <Link 
                   key={property.id} 
-                  href={`/property/${property.slug}`}
-                  className="block group"
+                  href={buildSafeListingHref('/property', property)}
+                  className="block group h-full"
                 >
-                  <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow">
-                    <div className="relative">
-                      <img
+                  <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow h-full min-h-[21rem] flex flex-col">
+                    <div className="relative w-full aspect-video">
+                      <Image
                         src={property.imageUrls[0]}
                         alt={property.title}
-                        className="w-full h-48 object-cover"
-                        loading="lazy"
+                        fill
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+                        className="object-cover"
+                      />
+                      <SourceWatermarkCover
+                        imageUrl={property.imageUrls[0]}
+                        force={shouldForceWatermark(property)}
                       />
                     </div>
                     
-                    <div className="p-4">
-                      <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 transition-colors line-clamp-2">
+                    <div className="p-4 flex flex-col flex-1">
+                      <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 transition-colors line-clamp-2 min-h-[3.5rem]">
                         {property.title}
                       </h3>
-                      <div className="flex items-center text-gray-600 mb-3 text-sm">
+                      <div className="flex items-center text-gray-600 mb-3 text-sm min-h-5">
                         <MapPin size={16} className="mr-1" />
                         <span className="line-clamp-1">{property.location}</span>
                       </div>
-                      <div className="text-xl font-bold text-blue-900 mb-3">
+                      <div className="text-xl font-bold text-blue-900 mb-3 min-h-[3rem] flex items-end">
                         {property.rate}
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-2 mt-auto min-h-10">
                         {property.bedrooms && (
                           <div className="flex items-center text-gray-600">
                             <Bed size={16} className="mr-1" />
@@ -398,6 +497,7 @@ export default function HomePage() {
       </div>
 
       {/* Featured Marketplace Section */}
+      {showMarketplaceSection && (
       <div className="bg-white py-16">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex justify-between items-center mb-12">
@@ -434,36 +534,37 @@ export default function HomePage() {
               </button>
             </div>
           ) : featuredMarketplace.length > 0 ? (
-            <div className="grid md:grid-cols-4 gap-6">
+            <div className="grid md:grid-cols-4 gap-6 [grid-auto-rows:1fr]">
               {featuredMarketplace.map((item) => (
                 <Link 
                   key={item.id}
-                  href={`/marketplace/${item.slug}`}
-                  className="block group"
+                  href={buildSafeListingHref('/marketplace', item)}
+                  className="block group h-full"
                 >
-                  <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow">
-                    <div className="relative">
-                      <img
+                  <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow h-full min-h-[21rem] flex flex-col">
+                    <div className="relative w-full aspect-video rounded-t-xl overflow-hidden">
+                      <Image
                         src={item.imageUrls[0]}
                         alt={item.title}
-                        className="w-full h-48 object-cover"
-                        loading="lazy"
+                        fill
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+                        className="object-cover rounded-t-xl"
                       />
                       <span className="absolute top-2 right-2 bg-orange-100 text-orange-600 px-2 py-1 rounded-full text-sm">
                         {item.condition}
                       </span>
                     </div>
-                    <div className="p-4">
-                      <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-2">
+                    <div className="p-4 flex flex-col flex-1">
+                      <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-2 min-h-[3.5rem]">
                         {item.title}
                       </h3>
-                      <div className="text-xl font-bold text-blue-900 mb-3">
+                      <div className="text-xl font-bold text-blue-900 mb-3 min-h-[3rem] flex items-end">
                         {item.priceString}
                       </div>
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mt-auto min-h-10 max-h-10 overflow-hidden">
                         <div className="flex items-center">
                           <MapPin size={16} className="mr-1" />
-                          <span>{item.location}</span>
+                          <span className="line-clamp-1">{item.location}</span>
                         </div>
                         <div className="flex items-center">
                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -484,15 +585,13 @@ export default function HomePage() {
                 </Link>
               ))}
             </div>
-          ) : (
-            <div className="text-center py-12 bg-gray-100 rounded-lg">
-              <p className="text-gray-600">No marketplace items available</p>
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
+      )}
 
       {/* Featured Tradespeople Section */}
+      {showTradespeopleSection && (
       <div className="bg-gray-50 py-16">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex justify-between items-center mb-12">
@@ -529,31 +628,32 @@ export default function HomePage() {
               </button>
             </div>
           ) : featuredTradespeople.length > 0 ? (
-            <div className="grid md:grid-cols-4 gap-6">
+            <div className="grid md:grid-cols-4 gap-6 [grid-auto-rows:1fr]">
               {featuredTradespeople.map((service) => (
                 <Link 
                   key={service.id}
-                  href={`/tradespeople/${service.slug}`}
-                  className="block group"
+                  href={buildSafeListingHref('/tradespeople', service)}
+                  className="block group h-full"
                 >
-                  <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow">
-                    <div className="relative">
-                      <img
+                  <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow h-full min-h-[21rem] flex flex-col">
+                    <div className="relative w-full aspect-video">
+                      <Image
                         src={service.imageUrls[0]}
                         alt={service.title}
-                        className="w-full h-48 object-cover"
-                        loading="lazy"
+                        fill
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+                        className="object-cover"
                       />
                       <span className="absolute top-2 right-2 bg-blue-500 text-white px-2 py-1 rounded-full text-sm">
                         {service.serviceType}
                       </span>
                     </div>
-                    <div className="p-4">
-                      <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-1">
+                    <div className="p-4 flex flex-col flex-1">
+                      <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-2 min-h-[3.5rem]">
                         {service.title}
                       </h3>
-                      <p className="text-gray-600 mb-3 line-clamp-1">{service.provider}</p>
-                      <div className="flex items-center gap-2 mb-3">
+                      <p className="text-gray-600 mb-3 line-clamp-1 min-h-6">{service.provider}</p>
+                      <div className="flex items-center gap-2 mb-3 min-h-6">
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
                           className="h-4 w-4 text-orange-500"
@@ -568,13 +668,13 @@ export default function HomePage() {
                         <span className="font-medium">{service.rating}</span>
                         <span className="text-gray-500">({service.reviewCount} reviews)</span>
                       </div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between mt-auto min-h-7">
                         <div className="text-lg font-bold text-blue-900">
                           {service.priceString}
                         </div>
                         <div className="flex items-center text-gray-600 text-sm">
                           <MapPin size={14} className="mr-1" />
-                          <span>{service.location}</span>
+                          <span className="line-clamp-1">{service.location}</span>
                         </div>
                       </div>
                     </div>
@@ -582,13 +682,10 @@ export default function HomePage() {
                 </Link>
               ))}
             </div>
-          ) : (
-            <div className="text-center py-12 bg-gray-100 rounded-lg">
-              <p className="text-gray-600">No tradespeople available</p>
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
+      )}
       {/* Featured Notices Section */}
       <FeaturedNotices />
       {/* Featured Housemates Section */}

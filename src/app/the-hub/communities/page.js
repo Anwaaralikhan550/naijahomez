@@ -149,7 +149,7 @@ export default function HubCommunitiesPage() {
     if (!user) {
       return (
         <Link
-          href="/login?returnUrl=/the-hub/communities"
+          href="/login?returnUrl=/dashboard/community/communities"
           className={`px-4 py-2 rounded-lg transition text-sm flex items-center bg-gray-100 text-gray-700 hover:bg-gray-200 ${className}`}
         >
           <Plus className="w-3 h-3 mr-1" />
@@ -243,13 +243,13 @@ export default function HubCommunitiesPage() {
                 </div>
                 <div className="mt-4 flex space-x-3">
                   <Link
-                    href="/login?returnUrl=/the-hub/communities"
+                    href="/login?returnUrl=/dashboard/community/communities"
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition"
                   >
                     Sign In
                   </Link>
                   <Link
-                    href="/register?returnUrl=/the-hub/communities"
+                    href="/register?returnUrl=/dashboard/community/communities"
                     className="bg-white text-blue-600 px-4 py-2 rounded-lg text-sm font-medium border border-blue-600 hover:bg-blue-50 transition"
                   >
                     Sign Up
@@ -336,7 +336,7 @@ export default function HubCommunitiesPage() {
               {userCommunities.map((community) => (
                 <Link
                   key={community.id}
-                  href={`/the-hub/feed?communityId=${community.id}`}
+                  href={`/dashboard/community/feed?communityId=${community.id}`}
                   className="group block"
                 >
                   <div className="border rounded-lg p-4 hover:shadow-md hover:border-blue-300 transition-all duration-200 cursor-pointer">

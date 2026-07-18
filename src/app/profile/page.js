@@ -153,32 +153,42 @@ export default function ProfilePage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-                <User className="w-8 h-8 text-blue-600" />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center min-w-0">
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-blue-100">
+                {user.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName || 'Profile photo'}
+                    className="block h-full w-full object-cover object-center"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <User className="w-8 h-8 text-blue-600" />
+                  </div>
+                )}
               </div>
-              <div className="ml-4">
-                <h1 className="text-2xl font-bold text-gray-900">
+              <div className="ml-4 min-w-0 max-w-full">
+                <h1 className="text-2xl font-bold text-gray-900 truncate max-w-full">
                   {user.displayName || 'User Profile'}
                 </h1>
-                <p className="text-gray-600">Manage your account information</p>
+                <p className="text-gray-600 truncate max-w-full">Manage your account information</p>
               </div>
             </div>
             
             {!isEditing ? (
               <button
                 onClick={() => setIsEditing(true)}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition w-full sm:w-auto"
               >
                 <Edit2 className="w-4 h-4 mr-2" />
                 Edit Profile
               </button>
             ) : (
-              <div className="flex space-x-2">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                 <button
                   onClick={handleCancel}
-                  className="flex items-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+                  className="flex items-center justify-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition flex-1 sm:flex-none"
                   disabled={loading}
                 >
                   <X className="w-4 h-4 mr-2" />
@@ -186,7 +196,7 @@ export default function ProfilePage() {
                 </button>
                 <button
                   onClick={handleSave}
-                  className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                  className="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 flex-1 sm:flex-none"
                   disabled={loading}
                 >
                   <Save className="w-4 h-4 mr-2" />
@@ -218,7 +228,7 @@ export default function ProfilePage() {
                   placeholder="Enter your display name"
                 />
               ) : (
-                <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">
+                <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900 break-words max-w-full">
                   {formData.displayName || 'Not set'}
                 </p>
               )}
@@ -230,7 +240,7 @@ export default function ProfilePage() {
                 <Mail className="w-4 h-4 inline mr-1" />
                 Email Address
               </label>
-              <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-500">
+              <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-500 break-all max-w-full">
                 {formData.email}
                 <span className="text-xs ml-2">(Cannot be changed)</span>
               </p>

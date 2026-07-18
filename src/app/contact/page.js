@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Mail, Phone, MapPin, Send, MessageSquare, Users, HelpCircle, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -8,6 +9,7 @@ export default function ContactUsPage() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    phone: '',
     subject: '',
     message: '',
     type: 'general'
@@ -15,6 +17,7 @@ export default function ContactUsPage() {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [ticketNumber, setTicketNumber] = useState('');
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -29,23 +32,32 @@ export default function ContactUsPage() {
     setIsSubmitting(true);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await fetch('/api/support/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, page: '/contact' })
+      });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to send message.');
+      }
       
-      // Reset form and show success
       setFormData({
         name: '',
         email: '',
+        phone: '',
         subject: '',
         message: '',
         type: 'general'
       });
       
+      setTicketNumber(result.ticket?.ticketNumber || '');
       setSuccess(true);
-      toast.success('Message sent successfully! We will get back to you soon.');
+      toast.success('Support ticket created successfully.');
     } catch (error) {
       console.error('Error sending message:', error);
-      toast.error('Failed to send message. Please try again.');
+      toast.error(error.message || 'Failed to send message. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -154,8 +166,13 @@ export default function ContactUsPage() {
                     </div>
                     <h3 className="text-xl font-semibold text-gray-900 mb-2">Message Sent!</h3>
                     <p className="text-gray-600 mb-6">
-                      Thank you for reaching out. We'll get back to you as soon as possible.
+                      Thank you for reaching out. Your support ticket has been created and our team will get back to you as soon as possible.
                     </p>
+                    {ticketNumber && (
+                      <div className="mb-6 rounded-xl bg-blue-50 px-4 py-3 text-blue-800">
+                        Ticket reference: <span className="font-semibold">{ticketNumber}</span>
+                      </div>
+                    )}
                     <button
                       onClick={() => setSuccess(false)}
                       className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
@@ -194,6 +211,21 @@ export default function ContactUsPage() {
                         required
                         className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="your@email.com"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
+                        Phone / WhatsApp (Optional)
+                      </label>
+                      <input
+                        type="tel"
+                        id="phone"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleChange}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="+234..."
                       />
                     </div>
                     
@@ -300,7 +332,7 @@ export default function ContactUsPage() {
               },
               {
                 question: 'What happens after I submit an inquiry?',
-                answer: 'After submitting an inquiry, our team will review it and respond to your email address within 24-48 hours during business days.'
+                answer: 'After submitting an inquiry, our support team receives a tracked ticket and can respond by email or WhatsApp where available.'
               },
               {
                 question: 'Do you verify service providers on the platform?',
@@ -312,6 +344,11 @@ export default function ContactUsPage() {
                 <p className="text-gray-600">{faq.answer}</p>
               </div>
             ))}
+          </div>
+          <div className="mt-10 text-center">
+            <Link href="/help" className="inline-flex items-center rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white transition-colors hover:bg-blue-700">
+              View Help Center
+            </Link>
           </div>
         </div>
       </div>

@@ -11,10 +11,10 @@ export default function TheHubPage() {
     if (!loading) {
       if (user) {
         // Authenticated user - redirect to dashboard
-        router.replace('/the-hub/dashboard');
+        router.replace('/dashboard/community/dashboard');
       } else {
         // Guest user - redirect to communities listing for discovery
-        router.replace('/the-hub/communities');
+        router.replace('/dashboard/community/communities');
       }
     }
   }, [user, loading, router]);
