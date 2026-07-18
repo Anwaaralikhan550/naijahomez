@@ -84,18 +84,7 @@ const FeaturedNotices = () => {
   }
 
   if (notices.length === 0) {
-    return (
-      <div className="py-16 bg-gray-50">
-        <div className="max-w-6xl mx-auto px-4">
-          <h2 className="text-3xl font-bold text-blue-900 mb-12">
-            Community Noticeboard
-          </h2>
-          <div className="text-center py-12 bg-gray-100 rounded-lg">
-            <p className="text-gray-600">No notices available</p>
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // Helper function to format notice types
@@ -136,9 +125,9 @@ const FeaturedNotices = () => {
             <Link 
               key={notice.id}
               href={`/noticeboard/${notice.slug}`}
-              className="block group"
+              className="block group h-full"
             >
-              <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow">
+              <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow h-full flex flex-col">
                 <div className="relative">
                   <img
                     src={notice.imageUrls[0]}
@@ -150,15 +139,15 @@ const FeaturedNotices = () => {
                     {formatNoticeType(notice.noticeType)}
                   </span>
                 </div>
-                <div className="p-4">
-                  <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-2">
+                <div className="p-4 flex flex-col flex-1">
+                  <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-2 min-h-[3.5rem]">
                     {notice.title}
                   </h3>
                   
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between mb-3 mt-auto">
                     <div className="flex items-center text-gray-600 text-sm">
                       <MapPin size={16} className="mr-1" />
-                      <span className="truncate max-w-[120px]">{notice.location}</span>
+                      <span className="line-clamp-1 max-w-[120px]">{notice.location}</span>
                     </div>
                     <div className="flex items-center text-gray-600 text-sm">
                       <Clock size={16} className="mr-1" />

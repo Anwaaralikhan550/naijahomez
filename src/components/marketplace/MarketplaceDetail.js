@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import apiService from '@/services/api';
 import { ImageGallery } from '@/components/property/ImageGallery';
-import { MapPin, Tag, Clock, AlertTriangle, Heart, Share2, Package, Truck, CreditCard, ShieldCheck } from 'lucide-react';
+import { MapPin, Tag, Clock, AlertTriangle, Heart, Share2, Package, Truck, CreditCard, ShieldCheck, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import toast from 'react-hot-toast';
 import ContactAgent from '@/components/shared/ContactAgent';
+import ListingReportModal from '@/components/reporting/ListingReportModal';
+import { trackImpression } from '@/lib/analytics/events';
 
 // Marketplace subcategories
 const MARKETPLACE_SUBCATEGORIES = {
@@ -52,6 +55,8 @@ export default function MarketplaceDetail({ params }) {
   const [error, setError] = useState(null);
   const [isSaved, setIsSaved] = useState(false);
   const [similarItems, setSimilarItems] = useState([]);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const trackedImpressionsRef = React.useRef(new Set());
 
   useEffect(() => {
     const loadItemData = async () => {
@@ -89,9 +94,23 @@ export default function MarketplaceDetail({ params }) {
     };
 
     loadItemData();
-  }, [resolvedParams.slug]);
+  }, [resolvedParams.slug, loadSimilarItems]);
 
-  const loadSimilarItems = async (currentItem) => {
+  useEffect(() => {
+    if (!item) return;
+
+    const listingId = item.id || item.slug;
+    if (!listingId) return;
+
+    if (trackedImpressionsRef.current.has(listingId)) {
+      return;
+    }
+
+    trackedImpressionsRef.current.add(listingId);
+    trackImpression(listingId, 'marketplace');
+  }, [item]);
+
+  const loadSimilarItems = useCallback(async (currentItem) => {
     if (!currentItem?.subCategory) return;
 
     try {
@@ -108,7 +127,7 @@ export default function MarketplaceDetail({ params }) {
       console.error('Error loading similar items:', error);
       // Non-critical - just show no similar items
     }
-  };
+  }, []);
 
   const handleShare = async () => {
     try {
@@ -192,6 +211,19 @@ export default function MarketplaceDetail({ params }) {
     );
   }
 
+  const normalizedSellerKycStatus = (
+    item?.user?.kycStatus ||
+    item?.kycStatus ||
+    ''
+  ).toString().toLowerCase();
+  const isSellerVerified = Boolean(
+    item?.agentVerified ||
+    item?.userVerified ||
+    item?.isVerified ||
+    item?.verified ||
+    normalizedSellerKycStatus === 'verified'
+  );
+
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -220,6 +252,15 @@ export default function MarketplaceDetail({ params }) {
                   <h1 className="text-xl md:text-2xl font-bold text-blue-900">
                     {item.title}
                   </h1>
+                  {isSellerVerified && (
+                    <span
+                      title="Identity verified"
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                    >
+                      <CheckCircle size={12} />
+                      Verified
+                    </span>
+                  )}
                   {item.condition && (
                     <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-sm">
                       {item.condition}
@@ -270,6 +311,13 @@ export default function MarketplaceDetail({ params }) {
                   >
                     <Share2 size={16} />
                     <span>Share</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowReportModal(true)}
+                    className="flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-600 border border-gray-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                  >
+                    <AlertTriangle size={16} />
+                    <span>Report this Ad</span>
                   </button>
                 </div>
               </div>
@@ -419,6 +467,7 @@ export default function MarketplaceDetail({ params }) {
                 title: item.subCategory ? `${MARKETPLACE_SUBCATEGORIES[item.subCategory] || item.subCategory} Seller` : "Marketplace Seller",
                 email: item.userEmail,
                 photoURL: item.userPhotoURL,
+                kycStatus: item?.user?.kycStatus || item?.kycStatus || null,
                 type: 'seller' // This indicates it's a marketplace seller
               }}
               // Pass the phone number and creation date directly
@@ -445,11 +494,16 @@ export default function MarketplaceDetail({ params }) {
                       className="block group"
                     >
                       <div className="flex items-start gap-3">
-                        <img
-                          src={similarItem.imageUrls?.[0] || "/api/placeholder/400/300"}
-                          alt={similarItem.title}
-                          className="w-20 h-16 md:w-24 md:h-20 object-cover rounded-lg shrink-0"
-                        />
+                        <div className="relative w-20 h-16 md:w-24 md:h-20 rounded-lg shrink-0 overflow-hidden">
+                          <Image
+                            src={similarItem.imageUrls?.[0] || "/api/placeholder/400/300"}
+                            alt={similarItem.title}
+                            fill
+                            sizes="(max-width: 768px) 80px, 96px"
+                            className="object-cover"
+                            loading="lazy"
+                          />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="text-base font-semibold text-blue-900 group-hover:text-blue-700 truncate">
                             {similarItem.title}
@@ -482,6 +536,19 @@ export default function MarketplaceDetail({ params }) {
           </div>
         </div>
       </div>
+      <ListingReportModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        listing={{
+          listingId: item.id || item.slug,
+          listingTitle: item.title,
+          listingType: 'marketplace',
+          collectionName: 'marketplace',
+          listingSlug: item.slug,
+          listingPath: item.slug ? `/marketplace/${item.slug}` : '',
+          listingUrl: item.slug ? `/marketplace/${item.slug}` : ''
+        }}
+      />
     </div>
   );
 }

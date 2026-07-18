@@ -1,9 +1,25 @@
 // components/housemate/HousemateListingCard.js
 import React from 'react';
 import Link from 'next/link';
-import { MapPin, Users, Calendar, Heart, DollarSign, Home, CheckSquare, Wifi, Bath } from 'lucide-react';
+import Image from 'next/image';
+import { MapPin, Users, Calendar, Heart, DollarSign, Home, CheckSquare, Wifi, Bath, Star } from 'lucide-react';
 
 const HousemateListingCard = ({ listing, onSaveToggle, isSaved = false }) => {
+  const parseDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate && typeof value.toDate === 'function') return value.toDate();
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPromotedActive = (entry) => {
+    if (!entry?.isPromoted) return false;
+    const expiry = parseDateValue(entry?.promotionExpiry);
+    if (!expiry) return true;
+    return expiry.getTime() > Date.now();
+  };
+
   // Map for display formatting
   const advertTypeMap = {
     'room_for_rent': 'Room for Rent',
@@ -104,23 +120,36 @@ const HousemateListingCard = ({ listing, onSaveToggle, isSaved = false }) => {
   };
   
   return (
-    <div className="bg-white rounded-xl shadow-lg overflow-hidden transform transition-all hover:-translate-y-2 hover:shadow-xl">
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden transform transition-all hover:-translate-y-2 hover:shadow-xl h-full min-h-[34rem] flex flex-col">
       {/* Image Section with Labels */}
       <div className="relative">
         <Link href={`/housemate/${listing.slug}`}>
-          <img
-            src={listing.imageUrls?.[0] || '/api/placeholder/400/300'}
-            alt={listing.title}
-            className="w-full h-56 object-cover"
-            loading="lazy"
-          />
+          <div className="relative w-full aspect-video">
+            <Image
+              src={listing.imageUrls?.[0] || '/api/placeholder/400/300'}
+              alt={listing.title}
+              fill
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              className="object-cover"
+              loading="lazy"
+              unoptimized
+            />
+          </div>
         </Link>
         
         {/* Top labels */}
         <div className="absolute top-3 left-3 right-3 flex justify-between">
-          <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-            {displayAdvertType}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+              {displayAdvertType}
+            </span>
+            {isPromotedActive(listing) && (
+              <span className="bg-amber-100 text-amber-700 border border-amber-200 px-2 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1">
+                <Star size={12} />
+                Promoted
+              </span>
+            )}
+          </div>
           
           <button 
             onClick={() => onSaveToggle && onSaveToggle(listing.id)}
@@ -141,10 +170,10 @@ const HousemateListingCard = ({ listing, onSaveToggle, isSaved = false }) => {
       </div>
       
       {/* Content */}
-      <Link href={`/housemate/${listing.slug}`} className="block p-4">
+      <Link href={`/housemate/${listing.slug}`} className="block p-4 flex flex-col flex-1">
         {/* Title and Price */}
         <div className="mb-3">
-          <h3 className="text-lg font-semibold text-blue-900 mb-1 line-clamp-2">
+          <h3 className="text-lg font-semibold text-blue-900 mb-1 line-clamp-2 min-h-[3.5rem]">
             {listing.title}
           </h3>
           <div className="flex items-center text-gray-600 mb-2">
@@ -162,29 +191,35 @@ const HousemateListingCard = ({ listing, onSaveToggle, isSaved = false }) => {
         </div>
         
         {/* Amenities */}
-        {displayAmenities.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-3">
-            {displayAmenities.map((amenity, idx) => {
-              const amenityInfo = amenitiesMap[amenity] || { label: amenity, icon: CheckSquare };
-              const Icon = amenityInfo.icon;
-              
-              return (
-                <span key={idx} className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs flex items-center gap-1">
-                  <Icon size={12} className="text-blue-500" />
-                  {amenityInfo.label}
+        <div className="flex flex-wrap gap-2 mb-3 min-h-[2.5rem] max-h-[2.5rem] overflow-hidden">
+          {displayAmenities.length > 0 ? (
+            <>
+              {displayAmenities.map((amenity, idx) => {
+                const amenityInfo = amenitiesMap[amenity] || { label: amenity, icon: CheckSquare };
+                const Icon = amenityInfo.icon;
+                
+                return (
+                  <span key={idx} className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs flex items-center gap-1">
+                    <Icon size={12} className="text-blue-500" />
+                    {amenityInfo.label}
+                  </span>
+                );
+              })}
+              {amenities.length > 3 && (
+                <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs">
+                  +{amenities.length - 3} more
                 </span>
-              );
-            })}
-            {amenities.length > 3 && (
-              <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs">
-                +{amenities.length - 3} more
-              </span>
-            )}
-          </div>
-        )}
+              )}
+            </>
+          ) : (
+            <span className="invisible bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs">
+              Placeholder
+            </span>
+          )}
+        </div>
         
         {/* Footer with Date & Availability */}
-        <div className="pt-3 border-t border-gray-100 flex justify-between items-center text-sm text-gray-500">
+        <div className="pt-3 border-t border-gray-100 flex justify-between items-center text-sm text-gray-500 mt-auto">
           <div className="flex items-center">
             <Calendar size={14} className="mr-1" />
             <span>{getListingAge()}</span>
@@ -206,6 +241,22 @@ const HousemateListingCard = ({ listing, onSaveToggle, isSaved = false }) => {
           )}
         </div>
       </Link>
+      <div className="px-4 pb-4 min-h-9 flex items-end">
+        {!isPromotedActive(listing) ? (
+          <Link
+            href={`/dashboard?tab=my-ads&action=promote&type=housemate&id=${encodeURIComponent(listing.id || '')}`}
+            className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-100 transition-colors"
+          >
+            <Star size={12} />
+            Promote Listing
+          </Link>
+        ) : (
+          <span className="invisible inline-flex items-center gap-1 text-xs border rounded-full px-3 py-1">
+            <Star size={12} />
+            Promote Listing
+          </span>
+        )}
+      </div>
     </div>
   );
 }

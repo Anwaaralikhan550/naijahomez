@@ -96,12 +96,47 @@ const RealtimeNotifications = ({ communityId, userId, className = '' }) => {
     return date.toLocaleDateString();
   };
 
+  const normalizeActionUrl = (actionUrl) => {
+    if (!actionUrl) return null;
+
+    if (typeof actionUrl === 'string') {
+      const trimmed = actionUrl.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+
+    if (typeof actionUrl === 'object') {
+      if (typeof actionUrl.pathname === 'string') {
+        const query = actionUrl.query && typeof actionUrl.query === 'object'
+          ? `?${new URLSearchParams(
+              Object.entries(actionUrl.query).reduce((acc, [key, value]) => {
+                acc[key] = value == null ? '' : String(value);
+                return acc;
+              }, {})
+            ).toString()}`
+          : '';
+        return `${actionUrl.pathname}${query}`;
+      }
+
+      if (typeof actionUrl.url === 'string') {
+        return actionUrl.url;
+      }
+    }
+
+    return null;
+  };
+
   const handleNotificationClick = (notification) => {
     markAsRead(notification.id);
     
     // Handle notification action based on type
-    if (notification.actionUrl) {
-      window.location.href = notification.actionUrl;
+    const safeUrl = normalizeActionUrl(notification.actionUrl);
+    if (safeUrl) {
+      window.location.href = safeUrl;
+      return;
+    }
+
+    if (notification.actionUrl != null) {
+      console.warn('Skipped invalid notification actionUrl:', notification.actionUrl);
     }
   };
 

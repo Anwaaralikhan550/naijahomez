@@ -1,8 +1,9 @@
 'use client';
 import React, { useState, useCallback } from 'react';
-import { Phone, Mail, MapPin, MessageCircle, Star, Share2, Loader2 } from 'lucide-react';
+import { Phone, Mail, MapPin, MessageCircle, Star, Share2, Loader2, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/lib/firebase-client';
+import { trackClick, trackJourneyStep } from '@/lib/analytics/events';
 import toast from 'react-hot-toast';
 
 const ContactAgent = ({ 
@@ -30,14 +31,31 @@ const ContactAgent = ({
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const normalizedKycStatus = (agent?.kycStatus || agent?.user?.kycStatus || '').toString().toLowerCase();
+  const isAgentVerified = Boolean(
+    agent?.isVerified ||
+    agent?.verified ||
+    agent?.userVerified ||
+    normalizedKycStatus === 'verified'
+  );
 
   // Format the phone number for display (if available)
   const formattedPhone = phoneNumber ? phoneNumber.replace(/^\+?/, '+') : null;
   
   // Prepare WhatsApp URL - Ensure we remove all non-digits for the WhatsApp URL
   const whatsappUrl = formattedPhone
-    ? `https://wa.me/${formattedPhone.replace(/\D/g, '')}?text=Hello, I'm interested in your property listing on Nijahomzs.`
+    ? `https://wa.me/${formattedPhone.replace(/\D/g, '')}?text=${encodeURIComponent("Hello, I'm interested in your listing on Nijahomzs.")}`
     : null;
+
+  const trackContactJourney = useCallback((step) => {
+    trackJourneyStep(step, {
+      source: 'contact_agent',
+      listingType: listingType || 'listing'
+    });
+    if (listingId && listingType) {
+      trackClick(listingId, listingType);
+    }
+  }, [listingId, listingType]);
 
   // Handle WhatsApp reveal with loading state and animation
   const handleRevealPhone = useCallback(async () => {
@@ -50,6 +68,7 @@ const ContactAgent = ({
 
     setShowPhone(true);
     setIsRevealingPhone(false);
+    trackContactJourney('call_click');
 
     toast.success('WhatsApp number revealed!', {
       duration: 2000,
@@ -61,7 +80,7 @@ const ContactAgent = ({
       },
       icon: '📱'
     });
-  }, [isRevealingPhone, showPhone]);
+  }, [isRevealingPhone, showPhone, trackContactJourney]);
 
   // Handle hide phone
   const handleHidePhone = useCallback(() => {
@@ -262,7 +281,18 @@ const ContactAgent = ({
           />
         </div>
         <div>
-          <h3 className="font-semibold text-gray-900">{agent.name || "Contact Seller"}</h3>
+          <div className="flex items-center gap-1 flex-wrap">
+            <h3 className="font-semibold text-gray-900">{agent.name || "Contact Seller"}</h3>
+            {isAgentVerified && (
+              <span
+                title="Identity verified"
+                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full"
+              >
+                <CheckCircle size={12} />
+                Verified
+              </span>
+            )}
+          </div>
           {agent.title && <p className="text-blue-600 text-sm">{agent.title}</p>}
           
           {/* Only show ratings if they exist */}
@@ -373,6 +403,7 @@ const ContactAgent = ({
                   href={whatsappUrl}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={() => trackContactJourney('whatsapp_click')}
                   className="text-xl font-bold block hover:text-green-700 flex items-center justify-center gap-2 transition-colors"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="text-green-600">

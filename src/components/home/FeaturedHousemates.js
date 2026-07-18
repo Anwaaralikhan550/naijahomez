@@ -10,6 +10,21 @@ const FeaturedHousemates = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const buildSafeHousemateHref = (listing) => {
+    const rawSlug = listing?.slug;
+    const rawId = listing?.id;
+    const safeSlug =
+      typeof rawSlug === 'string' || typeof rawSlug === 'number'
+        ? String(rawSlug).trim()
+        : '';
+    const safeId =
+      typeof rawId === 'string' || typeof rawId === 'number'
+        ? String(rawId).trim()
+        : '';
+    const segment = safeSlug || safeId;
+    return segment ? `/housemate/${encodeURIComponent(segment)}` : '/housemate';
+  };
+
   useEffect(() => {
     const loadFeaturedHousemates = async () => {
       try {
@@ -151,10 +166,10 @@ const FeaturedHousemates = () => {
           {housemates.map((listing) => (
             <Link 
               key={listing.id}
-              href={`/housemate/${listing.slug}`}
-              className="block group"
+              href={buildSafeHousemateHref(listing)}
+              className="block group h-full"
             >
-              <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow">
+              <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow h-full flex flex-col">
                 <div className="relative">
                   <img
                     src={listing.imageUrls?.[0] || '/api/placeholder/400/300'}
@@ -166,8 +181,8 @@ const FeaturedHousemates = () => {
                     {listing.roomType}
                   </span>
                 </div>
-                <div className="p-4">
-                  <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-1">
+                <div className="p-4 flex flex-col flex-1">
+                  <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-2 min-h-[3.5rem]">
                     {listing.title}
                   </h3>
                   <div className="flex items-center text-gray-600 mb-3 text-sm">
@@ -189,7 +204,7 @@ const FeaturedHousemates = () => {
                   
                   {/* Bathroom count if available */}
                   {(listing.bathrooms || listing.toilets) && (
-                    <div className="flex items-center text-gray-600 text-sm mt-2">
+                    <div className="flex items-center text-gray-600 text-sm mt-auto pt-2">
                       <Bath size={16} className="mr-1" />
                       <span>
                         {listing.bathrooms || listing.toilets} 

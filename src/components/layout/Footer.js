@@ -1,18 +1,30 @@
 // components/layout/Footer.js
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Footer() {
+  const currentYear = Number.isFinite(new Date().getFullYear())
+    ? new Date().getFullYear()
+    : 2026;
+  const socialLinkProps = {
+    target: '_blank',
+    rel: 'noopener noreferrer'
+  };
+
   return (
-    <footer className="bg-blue-50 border-t">
+    <footer className="bg-blue-50 border-t pb-20 md:pb-0">
       <div className="max-w-6xl mx-auto px-4 py-12">
         <div className="grid md:grid-cols-4 gap-8">
           {/* About Section */}
           <div className="text-center md:text-left">
             <h3 className="font-semibold mb-4 text-blue-900">About Us</h3>
             <div className="flex justify-center md:justify-start">
-              <img 
+              <Image
                 src="/nijahomzs-logo.png"
                 alt="Nijahomzs Logo"
+                width={256}
+                height={80}
+                sizes="128px"
                 className="mb-4 w-32 h-auto"
                 loading="lazy"
               />
@@ -89,8 +101,7 @@ export default function Footer() {
               <li>
                 <a 
                   href="https://www.facebook.com/profile.php?id=61556149863518" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
+                  {...socialLinkProps}
                   className="text-gray-700 hover:text-orange-500 transition-colors"
                 >
                   Facebook
@@ -99,8 +110,7 @@ export default function Footer() {
               <li>
                 <a 
                   href="https://twitter.com/Nijahomzs" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
+                  {...socialLinkProps}
                   className="text-gray-700 hover:text-orange-500 transition-colors"
                 >
                   Twitter
@@ -109,8 +119,7 @@ export default function Footer() {
               <li>
                 <a 
                   href="https://www.linkedin.com/in/nijahomzsofficial/" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
+                  {...socialLinkProps}
                   className="text-gray-700 hover:text-orange-500 transition-colors"
                 >
                   LinkedIn
@@ -119,8 +128,7 @@ export default function Footer() {
               <li>
                 <a 
                   href="https://www.instagram.com/nijahomzs" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
+                  {...socialLinkProps}
                   className="text-gray-700 hover:text-orange-500 transition-colors"
                 >
                   Instagram
@@ -140,7 +148,7 @@ export default function Footer() {
 
         {/* Copyright */}
         <div className="mt-12 pt-8 border-t text-center text-gray-600">
-          <p>&copy; {new Date().getFullYear()} Nijahomzs. All Rights Reserved.</p>
+          <p>&copy; {currentYear} Nijahomzs. All Rights Reserved.</p>
           <p className="text-sm mt-2">Connecting you with opportunities</p>
         </div>
       </div>

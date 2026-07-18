@@ -2,30 +2,33 @@ import React, { useState, useEffect } from 'react';
 // Replaced with API service calls
 import apiService from '@/services/api';
 import { ImageGallery } from '@/components/property/ImageGallery';
-import { 
-  MapPin, 
-  Clock, 
-  AlertTriangle, 
-  Heart, 
-  Share2, 
-  Star, 
-  Briefcase, 
-  GraduationCap, 
-  ShieldCheck, 
-  Book, 
-  Layers, 
-  CheckCircle, 
+import {
+  MapPin,
+  Clock,
+  AlertTriangle,
+  Heart,
+  Share2,
+  Star,
+  Briefcase,
+  GraduationCap,
+  ShieldCheck,
+  Book,
+  Layers,
+  CheckCircle,
   Award,
   Map
 } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import ContactAgent from '@/components/shared/ContactAgent';
+import ListingReportModal from '@/components/reporting/ListingReportModal';
 import toast from 'react-hot-toast';
+import { getCleanListingImageUrl } from '@/utils/imageUtils';
 
 export default function TradespeopleDetail({ params }) {
   // Use React.use() to unwrap params
   const resolvedParams = React.use(params);
-  
+
   const [service, setService] = useState(null);
   const [similarServices, setSimilarServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,13 +36,14 @@ export default function TradespeopleDetail({ params }) {
   const [viewCount, setViewCount] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
   const [activeTab, setActiveTab] = useState('description');
+  const [showReportModal, setShowReportModal] = useState(false);
 
   useEffect(() => {
     const loadServiceData = async () => {
       try {
         // Get service by slug using API service
         const response = await apiService.getTradespersonBySlug(resolvedParams.slug);
-        
+
         if (!response || !response.data) {
           setError('Service not found');
           return;
@@ -47,7 +51,7 @@ export default function TradespeopleDetail({ params }) {
 
         const serviceData = response.data;
         setService(serviceData);
-        
+
         // Track this view if needed
         if (serviceData.viewCount) {
           setViewCount(serviceData.viewCount);
@@ -121,20 +125,20 @@ export default function TradespeopleDetail({ params }) {
   // Function to calculate listing age
   const getListingAge = () => {
     if (!service.createdAt) return null;
-    
-    const createdDate = service.createdAt.seconds 
-      ? new Date(service.createdAt.seconds * 1000) 
+
+    const createdDate = service.createdAt.seconds
+      ? new Date(service.createdAt.seconds * 1000)
       : new Date(service.createdAt);
-    
+
     const now = new Date();
     const diffTime = Math.abs(now - createdDate);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays === 0) return "Listed today";
     if (diffDays === 1) return "Listed yesterday";
     if (diffDays < 7) return `Listed ${diffDays} days ago`;
     if (diffDays < 30) return `Listed ${Math.floor(diffDays / 7)} ${Math.floor(diffDays / 7) === 1 ? 'week' : 'weeks'} ago`;
-    
+
     return `Listed ${Math.floor(diffDays / 30)} ${Math.floor(diffDays / 30) === 1 ? 'month' : 'months'} ago`;
   };
 
@@ -143,34 +147,34 @@ export default function TradespeopleDetail({ params }) {
     if (service.priceString) {
       return service.priceString;
     }
-    
+
     // Handle different charge types
     if (service.chargeType === 'fixed_rate' && service.fixedRate) {
       return `₦${formatPrice(service.fixedRate)} fixed rate`;
     }
-    
+
     if (service.chargeType === 'hourly_rate' && service.hourlyRate) {
       return `₦${formatPrice(service.hourlyRate)}/hour`;
     }
-    
+
     if (service.chargeType === 'both_rates') {
       if (service.fixedRate && service.hourlyRate) {
         return `₦${formatPrice(service.fixedRate)} fixed or ₦${formatPrice(service.hourlyRate)}/hour`;
       }
     }
-    
+
     if (service.chargeType === 'price_range' && service.minPrice && service.maxPrice) {
       return `₦${formatPrice(service.minPrice)} - ₦${formatPrice(service.maxPrice)}`;
     }
-    
+
     if (service.chargeType === 'negotiable') {
       return 'Price Negotiable';
     }
-    
+
     if (service.price) {
       return `₦${formatPrice(service.price)}`;
     }
-    
+
     return 'Contact for pricing';
   };
 
@@ -198,8 +202,8 @@ export default function TradespeopleDetail({ params }) {
           <p className="text-red-500 mb-6">
             Please check the link or try again later.
           </p>
-          <Link 
-            href="/tradespeople" 
+          <Link
+            href="/tradespeople"
             className="inline-block bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors"
           >
             Browse Tradespeople
@@ -208,6 +212,19 @@ export default function TradespeopleDetail({ params }) {
       </div>
     );
   }
+
+  const normalizedProviderKycStatus = (
+    service?.user?.kycStatus ||
+    service?.kycStatus ||
+    ''
+  ).toString().toLowerCase();
+  const isProviderVerified = Boolean(
+    service?.agentVerified ||
+    service?.userVerified ||
+    service?.isVerified ||
+    service?.verified ||
+    normalizedProviderKycStatus === 'verified'
+  );
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -230,27 +247,36 @@ export default function TradespeopleDetail({ params }) {
                   <h1 className="text-xl md:text-2xl font-bold text-blue-900">
                     {service.title}
                   </h1>
+                  {isProviderVerified && (
+                    <span
+                      title="Identity verified"
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                    >
+                      <CheckCircle size={12} />
+                      Verified
+                    </span>
+                  )}
                   {service.serviceType && (
                     <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-sm">
                       {service.serviceType}
                     </span>
                   )}
                 </div>
-                
+
                 {service.businessType && (
                   <div className="flex items-center text-purple-700 mb-2">
                     <Briefcase size={18} className="mr-2 text-purple-500" />
                     <span className="text-base">{getBusinessTypeLabel(service.businessType)}</span>
                   </div>
                 )}
-                
+
                 {service.location && (
                   <div className="flex items-center text-gray-700 mb-2">
                     <MapPin size={18} className="mr-2 text-blue-500" />
                     <span className="text-base">{service.location}</span>
                   </div>
                 )}
-                
+
                 <div className="flex items-center gap-4 text-sm text-gray-600">
                   {service.rating && service.reviewCount && (
                     <div className="flex items-center">
@@ -259,14 +285,14 @@ export default function TradespeopleDetail({ params }) {
                       <span className="text-gray-500 ml-1">({service.reviewCount} reviews)</span>
                     </div>
                   )}
-                  
+
                   {service.experience && (
                     <div className="flex items-center">
                       <Award size={16} className="text-blue-500 mr-1" />
                       <span>{service.experience} year{parseInt(service.experience) !== 1 ? 's' : ''} experience</span>
                     </div>
                   )}
-                  
+
                   {service.createdAt && (
                     <div className="flex items-center">
                       <Clock size={16} className="mr-1 text-gray-500" />
@@ -275,28 +301,35 @@ export default function TradespeopleDetail({ params }) {
                   )}
                 </div>
               </div>
-              
+
               <div className="text-left md:text-right">
                 <div className="text-xl md:text-2xl font-bold text-blue-900 mb-2">
                   {renderPriceInfo()}
                 </div>
                 <div className="flex flex-wrap gap-2 justify-start md:justify-end">
-                  <button 
+                  <button
                     onClick={handleSave}
                     className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm transition-colors
-                      ${isSaved 
-                        ? 'bg-red-100 text-red-600' 
+                      ${isSaved
+                        ? 'bg-red-100 text-red-600'
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                   >
                     <Heart size={16} fill={isSaved ? "currentColor" : "none"} />
                     <span>{isSaved ? 'Saved' : 'Save'}</span>
                   </button>
-                  <button 
+                  <button
                     onClick={handleShare}
                     className="flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-600 hover:bg-gray-200"
                   >
                     <Share2 size={16} />
                     <span>Share</span>
+                  </button>
+                  <button
+                    onClick={() => setShowReportModal(true)}
+                    className="flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-600 border border-gray-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                  >
+                    <AlertTriangle size={16} />
+                    <span>Report this Ad</span>
                   </button>
                 </div>
               </div>
@@ -357,7 +390,7 @@ export default function TradespeopleDetail({ params }) {
                   <div className="prose max-w-none">
                     <h3 className="text-xl font-semibold text-blue-900 mb-4">About This Service</h3>
                     <p className="whitespace-pre-wrap text-gray-700">{service.description}</p>
-                    
+
                     {service.specializations && (
                       <div className="mt-6">
                         <h4 className="text-lg font-semibold text-blue-900 mb-2">Specializations</h4>
@@ -371,7 +404,7 @@ export default function TradespeopleDetail({ params }) {
                 {activeTab === 'details' && (
                   <div>
                     <h3 className="text-xl font-semibold text-blue-900 mb-4">Service Information</h3>
-                    
+
                     <div className="grid md:grid-cols-2 gap-x-8 gap-y-4">
                       {/* Service Type */}
                       {service.serviceType && (
@@ -385,7 +418,7 @@ export default function TradespeopleDetail({ params }) {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Business Type */}
                       {service.businessType && (
                         <div className="flex items-start gap-3">
@@ -398,7 +431,7 @@ export default function TradespeopleDetail({ params }) {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Experience */}
                       {service.experience && (
                         <div className="flex items-start gap-3">
@@ -411,7 +444,7 @@ export default function TradespeopleDetail({ params }) {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Availability */}
                       {service.availability && (
                         <div className="flex items-start gap-3">
@@ -424,7 +457,7 @@ export default function TradespeopleDetail({ params }) {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Areas Covered */}
                       {service.areasCovered && (
                         <div className="flex items-start gap-3">
@@ -437,7 +470,7 @@ export default function TradespeopleDetail({ params }) {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Capacity */}
                       {service.capacitySize && (
                         <div className="flex items-start gap-3">
@@ -450,7 +483,7 @@ export default function TradespeopleDetail({ params }) {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Charge Type */}
                       {service.chargeType && (
                         <div className="flex items-start gap-3">
@@ -464,7 +497,7 @@ export default function TradespeopleDetail({ params }) {
                         </div>
                       )}
                     </div>
-                    
+
                     {/* Pricing Details */}
                     <div className="mt-8">
                       <h4 className="text-lg font-semibold text-blue-900 mb-3">Pricing Details</h4>
@@ -475,14 +508,14 @@ export default function TradespeopleDetail({ params }) {
                             <span className="text-lg font-semibold text-blue-700">₦{formatPrice(service.fixedRate)}</span>
                           </div>
                         )}
-                        
+
                         {service.chargeType === 'hourly_rate' && service.hourlyRate && (
                           <div className="flex justify-between items-center">
                             <span className="text-gray-700">Hourly Rate:</span>
                             <span className="text-lg font-semibold text-blue-700">₦{formatPrice(service.hourlyRate)}/hour</span>
                           </div>
                         )}
-                        
+
                         {service.chargeType === 'both_rates' && (
                           <>
                             {service.fixedRate && (
@@ -499,7 +532,7 @@ export default function TradespeopleDetail({ params }) {
                             )}
                           </>
                         )}
-                        
+
                         {service.chargeType === 'price_range' && (
                           <>
                             {service.minPrice && (
@@ -516,13 +549,13 @@ export default function TradespeopleDetail({ params }) {
                             )}
                           </>
                         )}
-                        
+
                         {service.chargeType === 'negotiable' && (
                           <div className="text-center py-2">
                             <span className="text-lg font-semibold text-blue-700">Price Negotiable</span>
                           </div>
                         )}
-                        
+
                         {!service.chargeType && service.price && (
                           <div className="flex justify-between items-center">
                             <span className="text-gray-700">Price:</span>
@@ -538,7 +571,7 @@ export default function TradespeopleDetail({ params }) {
                 {activeTab === 'qualifications' && (
                   <div>
                     <h3 className="text-xl font-semibold text-blue-900 mb-4">Professional Background</h3>
-                    
+
                     {/* Qualifications */}
                     {service.qualifications && (
                       <div className="mb-6">
@@ -549,7 +582,7 @@ export default function TradespeopleDetail({ params }) {
                         <p className="text-gray-700 ml-7">{service.qualifications}</p>
                       </div>
                     )}
-                    
+
                     {/* Certifications */}
                     {service.certificationsLicenses && (
                       <div className="mb-6">
@@ -560,7 +593,7 @@ export default function TradespeopleDetail({ params }) {
                         <p className="text-gray-700 ml-7">{service.certificationsLicenses}</p>
                       </div>
                     )}
-                    
+
                     {/* Insurance Details */}
                     {service.insuranceDetails && (
                       <div className="mb-6">
@@ -571,7 +604,7 @@ export default function TradespeopleDetail({ params }) {
                         <p className="text-gray-700 ml-7">{service.insuranceDetails}</p>
                       </div>
                     )}
-                    
+
                     {/* Experience */}
                     {service.experience && (
                       <div className="mb-6">
@@ -582,7 +615,7 @@ export default function TradespeopleDetail({ params }) {
                         <p className="text-gray-700 ml-7">{service.experience} year{parseInt(service.experience) !== 1 ? 's' : ''} of professional experience in {service.serviceType || 'this field'}</p>
                       </div>
                     )}
-                    
+
                     {/* If no qualifications data is available */}
                     {!service.qualifications && !service.certificationsLicenses && !service.insuranceDetails && !service.experience && (
                       <p className="text-gray-500 italic">No qualification information provided.</p>
@@ -595,7 +628,7 @@ export default function TradespeopleDetail({ params }) {
 
           {/* Contact Section */}
           <div className="md:col-span-1 space-y-8">
-            <ContactAgent 
+            <ContactAgent
               agent={{
                 id: service.userId,
                 name: service.provider || service.userName,
@@ -604,6 +637,7 @@ export default function TradespeopleDetail({ params }) {
                 reviewCount: service.reviewCount || null,
                 email: service.userEmail,
                 photoURL: service.userPhotoURL,
+                kycStatus: service?.user?.kycStatus || service?.kycStatus || null,
               }}
               // Pass phone number directly from the service data
               phoneNumber={service.phoneNumber || service.providerContact}
@@ -634,7 +668,7 @@ export default function TradespeopleDetail({ params }) {
                       </div>
                     </div>
                   )}
-                  
+
                   {service.experience && (
                     <div className="flex items-start gap-3">
                       <div className="bg-green-100 rounded-full p-2 mt-1">
@@ -646,7 +680,7 @@ export default function TradespeopleDetail({ params }) {
                       </div>
                     </div>
                   )}
-                  
+
                   {service.qualifications && (
                     <div className="flex items-start gap-3">
                       <div className="bg-purple-100 rounded-full p-2 mt-1">
@@ -658,7 +692,7 @@ export default function TradespeopleDetail({ params }) {
                       </div>
                     </div>
                   )}
-                  
+
                   {service.insuranceDetails && (
                     <div className="flex items-start gap-3">
                       <div className="bg-teal-100 rounded-full p-2 mt-1">
@@ -682,18 +716,23 @@ export default function TradespeopleDetail({ params }) {
                 </h2>
                 <div className="space-y-4">
                   {similarServices.map((similarService) => (
-                    <Link 
-                      key={similarService.id} 
+                    <Link
+                      key={similarService.id}
                       href={`/tradespeople/${similarService.slug}`}
                       className="block group"
                     >
                       <div className="flex items-start gap-3">
                         {similarService.imageUrls && similarService.imageUrls.length > 0 && (
-                          <img
-                            src={similarService.imageUrls[0]}
-                            alt={similarService.title}
-                            className="w-20 h-16 md:w-24 md:h-20 object-cover rounded-lg shrink-0"
-                          />
+                          <div className="relative w-20 h-16 md:w-24 md:h-20 rounded-lg shrink-0 overflow-hidden">
+                            <Image
+                              src={getCleanListingImageUrl(similarService.imageUrls)}
+                              alt={similarService.title}
+                              fill
+                              sizes="(max-width: 768px) 80px, 96px"
+                              className="object-cover"
+                              loading="lazy"
+                            />
+                          </div>
                         )}
                         <div className="min-w-0 flex-1">
                           <h3 className="text-base font-semibold text-blue-900 group-hover:text-blue-700 truncate">
@@ -733,6 +772,19 @@ export default function TradespeopleDetail({ params }) {
           </div>
         </div>
       </div>
+      <ListingReportModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        listing={{
+          listingId: service.id || service.slug,
+          listingTitle: service.title,
+          listingType: 'tradespeople',
+          collectionName: 'services',
+          listingSlug: service.slug,
+          listingPath: service.slug ? `/tradespeople/${service.slug}` : '',
+          listingUrl: service.slug ? `/tradespeople/${service.slug}` : ''
+        }}
+      />
     </div>
   );
 }

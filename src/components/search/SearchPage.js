@@ -1,10 +1,14 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MapPin, Bed, Bath, Tag, Filter, X, Loader2, ShoppingCart, Wrench, Home } from 'lucide-react';
+import { MapPin, Bed, Bath, Tag, Filter, X, Loader2, ShoppingCart, Wrench, Home, SearchX, RotateCcw, Star } from 'lucide-react';
 import apiService from '@/services/api';
 import { slugify } from '@/utils/slugify';
+import SponsoredAdSlot from '@/components/advertising/SponsoredAdSlot';
+import { trackJourneyStep } from '@/lib/analytics/events';
+import { SourceWatermarkCover } from '@/components/property/ImageGallery';
 
 // Property Types Constant - For property search
 const PROPERTY_TYPES = [
@@ -36,7 +40,18 @@ const SERVICE_CATEGORIES = [
   { value: 'ac-repair', label: 'AC Repair' }
 ];
 
+function shouldForceWatermark(item) {
+  return Boolean(
+    item?.isScraped ||
+    item?.isScrapedData ||
+    item?.dataSource === 'scraped' ||
+    item?.sourceUrl
+  );
+}
+
 export default function SearchPage() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchQuery = searchParams.get('q') || '';
   
@@ -45,7 +60,7 @@ export default function SearchPage() {
   const [results, setResults] = useState([]);
   const [error, setError] = useState(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  
+
   // State for filters - separated by type
   const [propertyFilters, setPropertyFilters] = useState({
     minPrice: '',
@@ -67,6 +82,14 @@ export default function SearchPage() {
     category: '',
     rating: ''
   });
+
+  useEffect(() => {
+    trackJourneyStep('search', {
+      source: 'search_page',
+      listingType: activeTab,
+      location: propertyFilters.location || searchQuery
+    });
+  }, [activeTab, propertyFilters.location, searchQuery]);
 
   // Get current active filters based on tab
   const getActiveFilters = () => {
@@ -165,6 +188,21 @@ export default function SearchPage() {
     return value.toString().replace(/,/g, '');
   };
 
+  const parseDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate && typeof value.toDate === 'function') return value.toDate();
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPromotedActive = (item) => {
+    if (!item?.isPromoted) return false;
+    const expiry = parseDateValue(item?.promotionExpiry);
+    if (!expiry) return true;
+    return expiry.getTime() > Date.now();
+  };
+
   // Initial search on load and when tab changes
   useEffect(() => {
     if (searchQuery) {
@@ -222,7 +260,7 @@ export default function SearchPage() {
     const response = await apiService.getProperties({
       search: searchTerm,
       limit: 50,
-      ...(filters.type && { type: filters.type }),
+      ...(filters.propertyType && { propertyType: filters.propertyType }),
       ...(filters.minPrice && { minPrice: filters.minPrice }),
       ...(filters.maxPrice && { maxPrice: filters.maxPrice })
     });
@@ -250,7 +288,7 @@ export default function SearchPage() {
     // Apply property-specific filters
     if (filters.propertyType) {
       properties = properties.filter(property => 
-        property.type === filters.propertyType
+        (property.propertyType || property.type) === filters.propertyType
       );
     }
     
@@ -380,6 +418,31 @@ export default function SearchPage() {
     search();
   };
 
+  const clearSearchAndReset = () => {
+    setPropertyFilters({
+      minPrice: '',
+      maxPrice: '',
+      bedrooms: '',
+      bathrooms: '',
+      location: '',
+      propertyType: ''
+    });
+    setMarketplaceFilters({
+      minPrice: '',
+      maxPrice: '',
+      condition: '',
+      category: ''
+    });
+    setServiceFilters({
+      category: '',
+      rating: ''
+    });
+    setIsFilterOpen(false);
+    setResults([]);
+    setError(null);
+    router.push(pathname);
+  };
+
   // Helper function to get filter options based on active tab
   const getFilterOptions = () => {
     switch(activeTab) {
@@ -448,7 +511,7 @@ export default function SearchPage() {
                 value={propertyFilters.location}
                 onChange={handleFilterChange}
                 placeholder="Enter location"
-                className="w-full p-2 border rounded-lg bg-white text-gray-900"
+                className="w-full p-2 border rounded-lg bg-white text-gray-900 placeholder-gray-500"
               />
             </div>
           </>
@@ -635,8 +698,8 @@ export default function SearchPage() {
     switch(item.type) {
       case 'property':
         return (
-          <Link href={`/property/${item.slug}`} key={item.id} className="group">
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          <Link href={`/property/${item.slug}`} key={item.id} className="group block h-full">
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden h-full flex flex-col">
               <div className="relative">
                 <img
                   src={item.imageUrls?.[0] || '/api/placeholder/400/300'}
@@ -644,21 +707,25 @@ export default function SearchPage() {
                   className="w-full h-48 object-cover"
                   loading="lazy"
                 />
+                <SourceWatermarkCover
+                  imageUrl={item.imageUrls?.[0]}
+                  force={shouldForceWatermark(item)}
+                />
                 {item.type && (
                   <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm">
                     {item.type}
                   </div>
                 )}
               </div>
-              <div className="p-4">
-                <h3 className="text-lg font-bold text-blue-900 mb-2 line-clamp-2">
+              <div className="p-4 flex flex-col flex-1">
+                <h3 className="text-lg font-bold text-blue-900 mb-2 line-clamp-2 min-h-[3.5rem]">
                   {item.title}
                 </h3>
                 <div className="flex items-center text-gray-600 mb-2">
                   <MapPin size={16} className="mr-1" />
                   <span className="line-clamp-1">{item.location}</span>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center mt-auto">
                   <div className="text-lg font-bold text-blue-900">
                     {item.rate || item.price}
                   </div>
@@ -684,8 +751,8 @@ export default function SearchPage() {
         
       case 'marketplace':
         return (
-          <Link href={`/marketplace/${item.slug}`} key={item.id} className="group">
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          <Link href={`/marketplace/${item.slug}`} key={item.id} className="group block h-full">
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden h-full flex flex-col">
               <div className="relative">
                 <img
                   src={item.imageUrls?.[0] || '/api/placeholder/400/300'}
@@ -699,15 +766,15 @@ export default function SearchPage() {
                   </div>
                 )}
               </div>
-              <div className="p-4">
-                <h3 className="text-lg font-bold text-blue-900 mb-2 line-clamp-2">
+              <div className="p-4 flex flex-col flex-1">
+                <h3 className="text-lg font-bold text-blue-900 mb-2 line-clamp-2 min-h-[3.5rem]">
                   {item.title}
                 </h3>
                 <div className="flex items-center text-gray-600 mb-2">
                   <MapPin size={16} className="mr-1" />
                   <span className="line-clamp-1">{item.location}</span>
                 </div>
-                <div className="text-lg font-bold text-blue-900">
+                <div className="text-lg font-bold text-blue-900 mt-auto">
                   {item.priceString || item.price}
                 </div>
               </div>
@@ -717,8 +784,8 @@ export default function SearchPage() {
         
       case 'service':
         return (
-          <Link href={`/tradespeople/${item.slug}`} key={item.id} className="group">
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          <Link href={`/tradespeople/${item.slug}`} key={item.id} className="group block h-full">
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden h-full flex flex-col">
               <div className="relative">
                 <img
                   src={item.imageUrls?.[0] || '/api/placeholder/400/300'}
@@ -732,30 +799,32 @@ export default function SearchPage() {
                   </div>
                 )}
               </div>
-              <div className="p-4">
-                <h3 className="text-lg font-bold text-blue-900 mb-2 line-clamp-2">
+              <div className="p-4 flex flex-col flex-1">
+                <h3 className="text-lg font-bold text-blue-900 mb-2 line-clamp-2 min-h-[3.5rem]">
                   {item.title}
                 </h3>
                 {item.provider && (
-                  <p className="text-gray-600 mb-2">{item.provider}</p>
+                  <p className="text-gray-600 mb-2 line-clamp-1 min-h-6">{item.provider}</p>
                 )}
                 <div className="flex items-center text-gray-600 mb-2">
                   <MapPin size={16} className="mr-1" />
                   <span className="line-clamp-1">{item.location}</span>
                 </div>
-                {item.rating && (
-                  <div className="flex items-center gap-1 mb-2">
-                    <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
-                    </svg>
-                    <span className="font-medium">{item.rating}</span>
-                    {item.reviewCount && (
-                      <span className="text-gray-500 text-sm">({item.reviewCount})</span>
-                    )}
+                <div className="mt-auto">
+                  {item.rating && (
+                    <div className="flex items-center gap-1 mb-2">
+                      <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
+                      </svg>
+                      <span className="font-medium">{item.rating}</span>
+                      {item.reviewCount && (
+                        <span className="text-gray-500 text-sm">({item.reviewCount})</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="text-lg font-bold text-blue-900">
+                    {item.priceString || item.price}
                   </div>
-                )}
-                <div className="text-lg font-bold text-blue-900">
-                  {item.priceString || item.price}
                 </div>
               </div>
             </div>
@@ -769,17 +838,17 @@ export default function SearchPage() {
 
   return (
     <div className="bg-gray-50 min-h-screen">
-      <div className="bg-white shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="bg-white shadow-sm sticky top-14 md:top-16 lg:top-20 z-40">
+        <div className="max-w-6xl mx-auto px-4 py-4">
           <h1 className="text-2xl font-bold text-blue-900 mb-4">
             Search Results for "{searchQuery}"
           </h1>
           
           {/* Category Tabs */}
-          <div className="flex border-b">
+          <div className="flex border-b overflow-x-auto">
             <button
               onClick={() => setActiveTab('property')}
-              className={`px-4 py-2 font-medium border-b-2 ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap ${
                 activeTab === 'property'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -792,7 +861,7 @@ export default function SearchPage() {
             </button>
             <button
               onClick={() => setActiveTab('marketplace')}
-              className={`px-4 py-2 font-medium border-b-2 ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap ${
                 activeTab === 'marketplace'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -805,7 +874,7 @@ export default function SearchPage() {
             </button>
             <button
               onClick={() => setActiveTab('service')}
-              className={`px-4 py-2 font-medium border-b-2 ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap ${
                 activeTab === 'service'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -819,39 +888,59 @@ export default function SearchPage() {
           </div>
           
           {/* Filter Button */}
-          <div className="mt-4 flex justify-between items-center">
+          <div className="mt-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
           <p className="text-gray-600">
             {results.length} result{results.length !== 1 ? 's' : ''} found
           </p>
-            <button
-              onClick={() => setIsFilterOpen(!isFilterOpen)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-            >
-              <Filter size={18} />
-              <span>{isFilterOpen ? 'Hide Filters' : 'Show Filters'}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/dashboard?tab=my-ads&action=promote&type=${activeTab === 'property' ? 'property' : activeTab === 'marketplace' ? 'marketplace' : 'services'}`}
+                className="inline-flex items-center gap-1 px-3 py-2 bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 transition-colors text-sm min-h-[44px]"
+              >
+                <Star size={14} />
+                Promote Listing
+              </Link>
+              <button
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className="flex-shrink-0 bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 touch-target min-h-[44px] min-w-[44px] justify-center"
+              >
+                <Filter size={20} />
+                <span className="hidden sm:inline">{isFilterOpen ? 'Hide Filters' : 'Show Filters'}</span>
+              </button>
+            </div>
           </div>
           
           {/* Filters Panel */}
           {isFilterOpen && (
             <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-900">Filters</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(false)}
+                  aria-label="Close filters panel"
+                  className="inline-flex items-center justify-center rounded-lg p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
               <div className="grid md:grid-cols-3 gap-4">
                 {/* Dynamic Filter Options based on active tab */}
                 {getFilterOptions()}
                 
                 {/* Filter Actions */}
-                <div className="md:col-span-3 flex justify-end gap-4 mt-4">
+                <div className="md:col-span-3 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 mt-4">
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                    className="w-full sm:w-auto py-2 px-4 rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
                   >
                     Reset Filters
                   </button>
                   <button
                     type="button"
                     onClick={applyFilters}
-                    className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                    className="w-full sm:w-auto py-2 px-4 rounded-lg font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors"
                   >
                     Apply Filters
                   </button>
@@ -882,27 +971,72 @@ export default function SearchPage() {
             </button>
           </div>
         ) : results.length === 0 ? (
-          <div className="text-center py-12 bg-gray-100 rounded-lg">
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">No results found</h3>
-            <p className="text-gray-600">
-              We couldn't find any {activeTab === 'property' ? 'properties' : 
-                                    activeTab === 'marketplace' ? 'items' : 
-                                    'services'} matching "{searchQuery}"
+          <div className="text-center py-14 px-6 bg-white rounded-2xl border border-blue-100 shadow-sm">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-50 flex items-center justify-center">
+              <SearchX className="w-8 h-8 text-blue-500" />
+            </div>
+            <h3 className="text-2xl font-semibold text-gray-800 mb-2">
+              No {activeTab === 'property' ? 'properties' : activeTab === 'marketplace' ? 'items' : 'services'} found
+            </h3>
+            <p className="text-gray-600 max-w-2xl mx-auto">
+              No results matched your search for "{searchQuery}". Try clearing filters or searching with broader keywords.
             </p>
-            <div className="mt-6">
-              <p className="text-gray-700 mb-4">Suggestions:</p>
-              <ul className="text-gray-600 space-y-2">
-                <li>• Check your spelling</li>
-                <li>• Try more general keywords</li>
-                <li>• Try a different category</li>
-                <li>• Reset any active filters</li>
-              </ul>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                <RotateCcw size={16} />
+                Reset Filters
+              </button>
+              <button
+                type="button"
+                onClick={clearSearchAndReset}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                <X size={16} />
+                Clear Search
+              </button>
             </div>
           </div>
         ) : (
-          <div className="grid md:grid-cols-3 gap-6">
-            {results.map(item => renderItem(item))}
-          </div>
+          <>
+            {results.some((item) => isPromotedActive(item)) && (
+              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="flex items-center gap-2 mb-3 text-amber-800 text-sm font-semibold">
+                  <Star size={14} />
+                  Sponsored Results
+                </div>
+                <div className="grid md:grid-cols-3 gap-4">
+                  {results
+                    .filter((item) => isPromotedActive(item))
+                    .slice(0, 3)
+                    .map((item) => (
+                      <Link
+                        key={`sponsored-${item.id}`}
+                        href={`/${item.type === 'property' ? 'property' : item.type === 'marketplace' ? 'marketplace' : 'tradespeople'}/${item.slug || item.id}`}
+                        className="bg-white rounded-lg border border-amber-100 p-3 hover:shadow-sm transition-shadow h-full flex flex-col"
+                      >
+                        <p className="text-sm font-semibold text-blue-900 line-clamp-2 min-h-10">{item.title}</p>
+                        <p className="text-xs text-gray-600 line-clamp-1 mt-1">{item.location || item.provider}</p>
+                        <p className="text-sm font-bold text-blue-800 mt-auto pt-2">{item.priceString || item.price || item.rate || 'View details'}</p>
+                      </Link>
+                    ))}
+                </div>
+              </div>
+            )}
+            <SponsoredAdSlot
+              slot="search_sponsored_card"
+              location={getActiveFilters().location || searchQuery}
+              propertyCategory={getActiveFilters().propertyType || getActiveFilters().category || activeTab}
+              variant="card"
+              className="mb-6"
+            />
+            <div className="grid md:grid-cols-3 gap-6">
+              {results.map(item => renderItem(item))}
+            </div>
+          </>
         )}
       </div>
     </div>

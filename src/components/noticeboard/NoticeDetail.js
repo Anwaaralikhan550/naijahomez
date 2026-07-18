@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import apiService from '@/services/api';
 import { ImageGallery } from '@/components/property/ImageGallery';
-import { MapPin, Tag, Clock, AlertTriangle, Heart, Share2, Calendar, User } from 'lucide-react';
+import { MapPin, Tag, Clock, AlertTriangle, Heart, Share2, Calendar, User, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import toast from 'react-hot-toast';
 import ContactAgent from '@/components/shared/ContactAgent';
 import DOMPurify from 'isomorphic-dompurify';
+import ListingReportModal from '@/components/reporting/ListingReportModal';
 
 // Notice types for display
 const NOTICE_TYPES = {
@@ -26,6 +28,7 @@ export default function NoticeDetail({ params }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isSaved, setIsSaved] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   useEffect(() => {
     const loadNoticeData = async () => {
@@ -153,6 +156,19 @@ export default function NoticeDetail({ params }) {
     );
   }
 
+  const normalizedPosterKycStatus = (
+    notice?.user?.kycStatus ||
+    notice?.kycStatus ||
+    ''
+  ).toString().toLowerCase();
+  const isPosterVerified = Boolean(
+    notice?.agentVerified ||
+    notice?.userVerified ||
+    notice?.isVerified ||
+    notice?.verified ||
+    normalizedPosterKycStatus === 'verified'
+  );
+
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -181,6 +197,15 @@ export default function NoticeDetail({ params }) {
                   <h1 className="text-xl md:text-2xl font-bold text-blue-900">
                     {notice.title}
                   </h1>
+                  {isPosterVerified && (
+                    <span
+                      title="Identity verified"
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                    >
+                      <CheckCircle size={12} />
+                      Verified
+                    </span>
+                  )}
                   {notice.noticeType && (
                     <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-sm">
                       {NOTICE_TYPES[notice.noticeType] || notice.noticeType}
@@ -355,11 +380,11 @@ export default function NoticeDetail({ params }) {
             {/* Report Button */}
             <div className="flex justify-end w-full">
               <button 
-                onClick={() => toast.error('Report functionality coming soon')}
-                className="flex items-center gap-2 text-gray-500 hover:text-red-500 text-sm"
+                onClick={() => setShowReportModal(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
               >
                 <AlertTriangle size={16} />
-                <span>Report this notice</span>
+                <span>Report this Ad</span>
               </button>
             </div>
           </div>
@@ -373,6 +398,7 @@ export default function NoticeDetail({ params }) {
                 title: "Notice Publisher",
                 email: notice.userEmail,
                 photoURL: notice.userPhotoURL,
+                kycStatus: notice?.user?.kycStatus || notice?.kycStatus || null,
                 type: 'poster' // This indicates it's a notice poster
               }}
               // Pass the phone number and creation date directly
@@ -399,11 +425,16 @@ export default function NoticeDetail({ params }) {
                       className="block group"
                     >
                       <div className="flex items-start gap-3">
-                        <img
-                          src={relatedNotice.imageUrls?.[0] || "/api/placeholder/400/300"}
-                          alt={relatedNotice.title}
-                          className="w-20 h-16 md:w-24 md:h-20 object-cover rounded-lg shrink-0"
-                        />
+                        <div className="relative w-20 h-16 md:w-24 md:h-20 rounded-lg shrink-0 overflow-hidden">
+                          <Image
+                            src={relatedNotice.imageUrls?.[0] || "/api/placeholder/400/300"}
+                            alt={relatedNotice.title}
+                            fill
+                            sizes="(max-width: 768px) 80px, 96px"
+                            className="object-cover"
+                            loading="lazy"
+                          />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="text-base font-semibold text-blue-900 group-hover:text-blue-700 truncate">
                             {relatedNotice.title}
@@ -448,6 +479,19 @@ export default function NoticeDetail({ params }) {
           </div>
         </div>
       </div>
+      <ListingReportModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        listing={{
+          listingId: notice.id || notice.slug,
+          listingTitle: notice.title,
+          listingType: 'noticeboard',
+          collectionName: 'noticeboard',
+          listingSlug: notice.slug,
+          listingPath: notice.slug ? `/noticeboard/${notice.slug}` : '',
+          listingUrl: notice.slug ? `/noticeboard/${notice.slug}` : ''
+        }}
+      />
     </div>
   );
 }

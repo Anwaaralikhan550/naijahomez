@@ -38,12 +38,12 @@ export default function SimilarProperties({ properties }) {
                 className="w-20 h-16 md:w-24 md:h-20 object-cover rounded-lg shrink-0"
               />
               <div className="min-w-0 flex-1">
-                <h3 className="text-base font-semibold text-blue-900 group-hover:text-blue-700 truncate">
+                <h3 className="text-base font-semibold text-blue-900 group-hover:text-blue-700 line-clamp-2 min-h-10">
                   {property.title}
                 </h3>
                 <div className="flex items-center text-gray-600 text-sm mt-1">
                   <MapPin size={14} className="shrink-0 mr-1 text-blue-500" />
-                  <span className="truncate">{getLocationText(property.location)}</span>
+                  <span className="line-clamp-1">{getLocationText(property.location)}</span>
                 </div>
                 <div className="text-lg font-bold text-blue-900 mt-1">
                   {property.rate}

@@ -5,40 +5,28 @@ import apiService from '@/services/api';
 
 const WhyChooseSection = () => {
   const [counts, setCounts] = useState({
-    marketplace: "0",
-    properties: "0",
-    services: "0"
+    marketplace: 0,
+    properties: 0,
+    services: 0
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchCollectionCounts = async () => {
       try {
-        // Use API endpoints to fetch counts
-        const [propertiesRes, marketplaceRes, servicesRes] = await Promise.all([
-          apiService.getProperties({ limit: 1 }), // Get minimal data to avoid large payload
-          apiService.getMarketplaceItems({ limit: 1 }),
-          apiService.getTradespeople({ limit: 1 })
-        ]);
-
-        // Format the counts with thousands separator - use estimates since we don't have exact counts
-        const formatCount = (count) => {
-          const estimate = Math.max(count * 10, 100); // Simple estimation
-          return `${estimate.toLocaleString()}+`;
-        };
-
+        const statsRes = await apiService.getPublicStats();
+        const stats = statsRes?.data || {};
         setCounts({
-          marketplace: formatCount(marketplaceRes.data?.length || 10),
-          properties: formatCount(propertiesRes.data?.length || 20),
-          services: formatCount(servicesRes.data?.length || 15)
+          marketplace: Number(stats.marketplace || 0),
+          properties: Number(stats.properties || 0),
+          services: Number(stats.services || 0)
         });
       } catch (error) {
         console.error('Error fetching collection counts:', error);
-        // Fallback to static values in case of error
         setCounts({
-          marketplace: "15,000+",
-          properties: "10,000+",
-          services: "5,000+"
+          marketplace: 0,
+          properties: 0,
+          services: 0
         });
       } finally {
         setLoading(false);
@@ -47,6 +35,8 @@ const WhyChooseSection = () => {
 
     fetchCollectionCounts();
   }, []);
+
+  const formatCount = (count) => Number(count || 0).toLocaleString();
 
   const features = [
     {
@@ -88,8 +78,8 @@ const WhyChooseSection = () => {
       icon: Trophy,
       title: 'Best Deals',
       description: 'Find competitive prices and great deals on properties, items, and services all in one place.',
-      color: 'text-yellow-500',
-      bgColor: 'bg-yellow-50'
+      color: 'text-blue-500',
+      bgColor: 'bg-blue-50'
     }
   ];
 
@@ -109,7 +99,7 @@ const WhyChooseSection = () => {
           {features.map((feature, index) => (
             <div 
               key={index}
-              className="relative group"
+              className="relative"
             >
               <div className={`
                 relative
@@ -118,10 +108,6 @@ const WhyChooseSection = () => {
                 bg-white
                 rounded-xl
                 shadow-lg
-                transition-all
-                duration-300
-                hover:-translate-y-2
-                hover:shadow-xl
                 ${feature.bgColor}
                 border border-gray-100
               `}>
@@ -136,9 +122,6 @@ const WhyChooseSection = () => {
                   items-center
                   justify-center
                   mb-6
-                  group-hover:scale-110
-                  transition-transform
-                  duration-300
                 `}>
                   <feature.icon size={32} />
                 </div>
@@ -163,10 +146,6 @@ const WhyChooseSection = () => {
                 ${feature.bgColor}
                 opacity-50
                 -z-10
-                transition-transform
-                duration-300
-                group-hover:translate-x-1
-                group-hover:translate-y-1
               `} />
             </div>
           ))}
@@ -187,7 +166,7 @@ const WhyChooseSection = () => {
                 {stat.loading ? (
                   <div className="animate-pulse h-8 w-20 bg-gray-200 mx-auto rounded"></div>
                 ) : (
-                  stat.value
+                  formatCount(stat.value)
                 )}
               </div>
               <div className="text-gray-600">

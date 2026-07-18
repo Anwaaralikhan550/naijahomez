@@ -13,6 +13,17 @@ const SearchDropdown = ({
 }) => {
   if (!isOpen) return null;
 
+  const getSafeHref = (value) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed || '#';
+    }
+    if (typeof value === 'number') {
+      return `/${value}`;
+    }
+    return '#';
+  };
+
   // Get type icon and color
   const getTypeInfo = (type) => {
     switch (type) {
@@ -52,7 +63,7 @@ const SearchDropdown = ({
               return (
                 <Link
                   key={item.id}
-                  href={item.href}
+                  href={getSafeHref(item.href)}
                   onClick={onClose}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
                 >

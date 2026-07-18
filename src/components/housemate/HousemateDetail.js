@@ -3,14 +3,16 @@ import React, { useState, useEffect } from 'react';
 import { 
   Flag, Share2, Heart, AlertTriangle, Loader2, 
   Users, Wifi, Home, MapPin, Calendar, Bath, 
-  Coffee, CheckSquare, DollarSign, Clock
+  Coffee, CheckSquare, DollarSign, Clock, CheckCircle
 } from 'lucide-react';
 // Replaced with API service calls
 import apiService from '@/services/api';
 import { ImageGallery } from '@/components/property/ImageGallery';
 import ContactAgent from '@/components/shared/ContactAgent';
+import ListingReportModal from '@/components/reporting/ListingReportModal';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import Image from 'next/image';
 import DOMPurify from 'isomorphic-dompurify';
 
 export default function HousemateDetail({ params }) {
@@ -23,6 +25,7 @@ export default function HousemateDetail({ params }) {
   const [error, setError] = useState(null);
   const [isSaved, setIsSaved] = useState(false);
   const [viewCount, setViewCount] = useState(0);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   // Maps for display purposes
   const advertTypeMap = {
@@ -252,6 +255,18 @@ export default function HousemateDetail({ params }) {
 
   // Get all amenities, combining new and legacy formats
   const amenities = listing.amenities || [];
+  const normalizedPosterKycStatus = (
+    listing?.user?.kycStatus ||
+    listing?.kycStatus ||
+    ''
+  ).toString().toLowerCase();
+  const isPosterVerified = Boolean(
+    listing?.agentVerified ||
+    listing?.userVerified ||
+    listing?.isVerified ||
+    listing?.verified ||
+    normalizedPosterKycStatus === 'verified'
+  );
 
   // Format price display based on advert type
   const getPriceDisplay = () => {
@@ -302,6 +317,15 @@ export default function HousemateDetail({ params }) {
                   <h1 className="text-xl md:text-2xl font-bold text-blue-900">
                     {listing.title}
                   </h1>
+                  {isPosterVerified && (
+                    <span
+                      title="Identity verified"
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                    >
+                      <CheckCircle size={12} />
+                      Verified
+                    </span>
+                  )}
                   <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-sm">
                     {displayAdvertType}
                   </span>
@@ -546,11 +570,11 @@ export default function HousemateDetail({ params }) {
             {/* Report Button */}
             <div className="flex justify-end w-full">
               <button 
-                onClick={() => toast.error('Report functionality coming soon')}
-                className="flex items-center gap-2 text-gray-500 hover:text-red-500 text-sm"
+                onClick={() => setShowReportModal(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
               >
                 <Flag size={16} />
-                <span>Report this listing</span>
+                <span>Report this Ad</span>
               </button>
             </div>
           </div>
@@ -564,6 +588,13 @@ export default function HousemateDetail({ params }) {
                 title: advertType === 'room_for_rent' ? "Room Owner/Manager" : "Room Seeker",
                 email: listing.userEmail || listing.email,
                 photoURL: listing.userPhotoURL,
+                isVerified: Boolean(
+                  listing?.agentVerified ??
+                  listing?.userVerified ??
+                  listing?.isVerified ??
+                  listing?.verified
+                ),
+                kycStatus: listing?.user?.kycStatus || listing?.kycStatus || null,
               }}
               // Pass the phone number and creation date directly
               phoneNumber={listing.phoneNumber}
@@ -587,11 +618,16 @@ export default function HousemateDetail({ params }) {
                       className="block group"
                     >
                       <div className="flex items-start gap-3">
-                        <img
-                          src={similarListing.imageUrls?.[0] || "/api/placeholder/400/300"}
-                          alt={similarListing.title}
-                          className="w-20 h-16 md:w-24 md:h-20 object-cover rounded-lg shrink-0"
-                        />
+                        <div className="relative w-20 h-16 md:w-24 md:h-20 rounded-lg shrink-0 overflow-hidden">
+                          <Image
+                            src={similarListing.imageUrls?.[0] || "/api/placeholder/400/300"}
+                            alt={similarListing.title}
+                            fill
+                            sizes="(max-width: 768px) 80px, 96px"
+                            className="object-cover"
+                            loading="lazy"
+                          />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="text-base font-semibold text-blue-900 group-hover:text-blue-700 truncate">
                             {similarListing.title}
@@ -627,6 +663,19 @@ export default function HousemateDetail({ params }) {
           </div>
         </div>
       </div>
+      <ListingReportModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        listing={{
+          listingId: listing.id || listing.slug,
+          listingTitle: listing.title,
+          listingType: 'housemate',
+          collectionName: 'housemates',
+          listingSlug: listing.slug,
+          listingPath: listing.slug ? `/housemate/${listing.slug}` : '',
+          listingUrl: listing.slug ? `/housemate/${listing.slug}` : ''
+        }}
+      />
     </div>
   );
 }

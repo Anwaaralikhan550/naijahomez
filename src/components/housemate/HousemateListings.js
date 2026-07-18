@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { 
   Filter, Search, X, Loader2, 
-  MapPin, ChevronDown, DollarSign, Users, Home
+  MapPin, ChevronDown, DollarSign, Users, Home, Star
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
@@ -47,6 +47,21 @@ function HousemateListings(props = {}) {
     sortOrder: 'desc'
   });
   const [savedListings, setSavedListings] = useState([]);
+
+  const parseDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate && typeof value.toDate === 'function') return value.toDate();
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPromotedActive = (item) => {
+    if (!item?.isPromoted) return false;
+    const expiry = parseDateValue(item?.promotionExpiry);
+    if (!expiry) return true;
+    return expiry.getTime() > Date.now();
+  };
   
   // Debounced search query
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
@@ -123,7 +138,18 @@ function HousemateListings(props = {}) {
   
   // Initial load and search effect
   useEffect(() => {
-    loadListings(true);
+    const runInitialLoad = async () => {
+      try {
+        await loadListings(true);
+      } catch (loadError) {
+        console.error('Housemate initial load failed:', loadError);
+        setListings([]);
+        setPagination({ page: 1, hasMore: false, total: 0 });
+        setError('Failed to load listings. Please try again later.');
+      }
+    };
+
+    runInitialLoad();
     
     // Load saved listings from localStorage
     const loadSaved = () => {
@@ -200,6 +226,13 @@ function HousemateListings(props = {}) {
       }
     } catch (error) {
       console.error('Error loading housemate listings:', error);
+      setListings([]);
+      setPagination(prev => ({
+        ...prev,
+        page: reset ? 1 : prev.page,
+        hasMore: false,
+        total: 0
+      }));
       setError('Failed to load listings. Please try again later.');
     } finally {
       setIsLoading(false);
@@ -320,15 +353,15 @@ function HousemateListings(props = {}) {
 
   return (
     <div className="bg-gray-50 min-h-screen">
-      <div className="bg-white shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="bg-white shadow-sm sticky top-14 md:top-16 lg:top-20 z-40">
+        <div className="max-w-6xl mx-auto px-4 py-4">
           {/* Title */}
-          <h1 className="text-3xl font-bold text-blue-900 mb-6">
+          <h1 className="text-2xl font-bold text-blue-900 mb-4">
             Find a Housemate or Room
           </h1>
 
           {/* Search bar */}
-          <form onSubmit={handleSearch} className="mb-6 flex gap-2">
+          <form onSubmit={handleSearch} className="mb-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
             <div className="relative flex-grow" ref={searchInputRef}>
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="text-gray-400" size={20} />
@@ -339,7 +372,7 @@ function HousemateListings(props = {}) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={handleSearchFocus}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base sm:text-sm"
               />
               <SearchDropdown
                 isOpen={isDropdownOpen}
@@ -353,23 +386,34 @@ function HousemateListings(props = {}) {
             <button 
               type="submit"
               disabled={isLoading}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300"
+              className="bg-blue-500 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300 touch-target min-h-[44px] text-base sm:text-sm font-medium"
             >
               {isLoading ? 'Searching...' : 'Search'}
             </button>
             <button 
               type="button"
               onClick={() => setIsFilterOpen(!isFilterOpen)}
-              className="bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2"
+              className="flex-shrink-0 bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 touch-target min-h-[44px] min-w-[44px] justify-center"
             >
               <Filter size={20} />
-              <span className="hidden md:inline">Filters</span>
+              <span className="hidden sm:inline">Filters</span>
             </button>
           </form>
 
           {/* Advanced Filters */}
           {isFilterOpen && (
             <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-900">Filters</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(false)}
+                  aria-label="Close filters panel"
+                  className="inline-flex items-center justify-center rounded-lg p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
               <div className="grid md:grid-cols-3 gap-4">
                 {/* Price Range */}
                 <div className="space-y-2">
@@ -511,18 +555,18 @@ function HousemateListings(props = {}) {
                 </div>
 
                 {/* Filter Actions */}
-                <div className="md:col-span-3 flex justify-end gap-4 mt-4">
+                <div className="md:col-span-3 flex flex-col sm:flex-row sm:justify-end gap-3 mt-4">
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    className="w-full sm:w-auto py-2 px-4 rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
                   >
                     Reset Filters
                   </button>
                   <button
                     type="button"
                     onClick={applyFilters}
-                    className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    className="w-full sm:w-auto py-2 px-4 rounded-lg font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors"
                   >
                     Apply Filters
                   </button>
@@ -667,18 +711,54 @@ function HousemateListings(props = {}) {
                   <p className="text-sm text-gray-600">
                     Showing {listings.length} of {pagination.total} results
                   </p>
-                  <Link
-                    href="/dashboard?tab=post-ad&type=housemate"
-                    className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 5v14M5 12h14"/>
-                    </svg>
-                    Post Housemate Listing
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href="/dashboard?tab=my-ads&action=promote&type=housemate"
+                      className="bg-amber-100 text-amber-800 px-3 py-2 rounded-lg hover:bg-amber-200 transition-colors text-sm inline-flex items-center gap-1"
+                    >
+                      <Star size={14} />
+                      Promote Listing
+                    </Link>
+                    <Link
+                      href="/dashboard?tab=post-ad&type=housemate"
+                      className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 5v14M5 12h14"/>
+                      </svg>
+                      Post Housemate Listing
+                    </Link>
+                  </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-6">
+                {listings.some((listing) => isPromotedActive(listing)) && (
+                  <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                    <div className="flex items-center gap-2 mb-3 text-amber-800 text-sm font-semibold">
+                      <Star size={14} />
+                      Sponsored Housemate Listings
+                    </div>
+                    <div className="grid md:grid-cols-3 gap-4 [grid-auto-rows:1fr]">
+                      {listings
+                        .filter((listing) => isPromotedActive(listing))
+                        .slice(0, 3)
+                        .map((listing) => (
+                          <Link
+                            key={`sponsored-${listing.id}`}
+                            href={`/housemate/${listing.slug}`}
+                            className="bg-white rounded-lg border border-amber-100 p-3 hover:shadow-sm transition-shadow h-full flex flex-col"
+                          >
+                            <p className="text-sm font-semibold text-blue-900 line-clamp-2 min-h-10">{listing.title}</p>
+                            <p className="text-xs text-gray-600 line-clamp-1 mt-1">{listing.location}</p>
+                            <p className="text-sm font-bold text-blue-800 mt-auto pt-2">
+                              {listing.rate || (listing.price ? `N${listing.price.toLocaleString()}` : 'Contact lister')}
+                            </p>
+                          </Link>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid md:grid-cols-3 gap-6 [grid-auto-rows:1fr]">
                   {listings.map((listing) => (
                     <HousemateListingCard
                       key={listing.id}

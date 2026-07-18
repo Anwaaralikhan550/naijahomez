@@ -1,7 +1,8 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { MapPin, Star, Filter, Clock, Loader2, X, Briefcase, Award, GraduationCap, ShieldCheck } from 'lucide-react';
+import Image from 'next/image';
+import { MapPin, Star, Filter, Clock, Loader2, X, Briefcase, Award, GraduationCap, ShieldCheck, Search } from 'lucide-react';
 import apiService from '@/services/api';
 import { slugify } from '@/utils/slugify';
 import { withProximityFilter } from '@/utils/withProximityFilter';
@@ -9,6 +10,7 @@ import { useGeolocationContext } from '@/context/GeolocationContext';
 import DistanceBadge from '@/components/shared/DistanceBadge';
 import { useSearchRecommendations } from '@/hooks/useSearchRecommendations';
 import SearchDropdown from '@/components/shared/SearchDropdown';
+import { getCleanListingImageUrl } from '@/utils/imageUtils';
 
 function TradespeopleListings({ data: proximityFilteredServices = [], isLoading: isProximityLoading, isProximityFiltered }) {
   // Get geolocation context to check if 'Near Me' is enabled
@@ -71,7 +73,20 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
 
   // Initial load
   useEffect(() => {
-    loadServices(true);
+    const runInitialLoad = async () => {
+      try {
+        await loadServices(true);
+      } catch (loadError) {
+        console.error('Tradespeople initial load failed:', loadError);
+        setFilteredServices([]);
+        setOriginalData([]);
+        setHasMoreLocal(false);
+        setTotalCount(0);
+        setError('Failed to load services. Please try again later.');
+      }
+    };
+
+    runInitialLoad();
   }, []);
 
   const loadServices = async (reset = false) => {
@@ -164,6 +179,10 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
       setHasMoreLocal(validServices.length > displayCount);
     } catch (error) {
       console.error('Error loading services:', error);
+      setFilteredServices([]);
+      setOriginalData([]);
+      setHasMoreLocal(false);
+      setTotalCount(0);
       setError('Failed to load services. Please try again later.');
     } finally {
       setIsLocalLoading(false);
@@ -351,14 +370,14 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
   return (
     <div className="bg-gray-50 min-h-screen">
       {/* Header with Search and Filters */}
-      <div className="bg-white shadow-sm sticky top-0 z-40">
+      <div className="bg-white shadow-sm sticky top-14 md:top-16 lg:top-20 z-40">
         <div className="max-w-6xl mx-auto px-4 py-4">
           {/* Search and Filter Header */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
             <h1 className="text-2xl font-bold text-blue-900">
               Tradespeople
             </h1>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-2 md:gap-4">
               <select
                 value={`${filters.sortBy}${filters.sortOrder}`}
                 onChange={handleSortChange}
@@ -373,22 +392,19 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
               <button 
                 type="button"
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className="bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2"
+                className="flex-shrink-0 bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 touch-target min-h-[44px] min-w-[44px] justify-center"
               >
                 <Filter size={20} />
-                <span>Filters</span>
+                <span className="hidden sm:inline">Filters</span>
               </button>
             </div>
           </div>
 
           {/* Search Form */}
-          <form onSubmit={handleSearch} className="flex items-center space-x-4">
+          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
             <div className="flex-grow relative" ref={searchInputRef}>
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
-                  <circle cx="11" cy="11" r="8"></circle>
-                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                </svg>
+                <Search className="text-gray-400" size={20} />
               </div>
               <input
                 type="text"
@@ -396,7 +412,7 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={handleSearchFocus}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base sm:text-sm"
               />
               <SearchDropdown
                 isOpen={isDropdownOpen}
@@ -410,7 +426,7 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
             <button 
               type="submit"
               disabled={isLocalLoading}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300"
+              className="bg-blue-500 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300 touch-target min-h-[44px] text-base sm:text-sm font-medium"
             >
               {isLocalLoading ? 'Searching...' : 'Search'}
             </button>
@@ -419,6 +435,17 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
           {/* Advanced Filters */}
           {isFilterOpen && (
             <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-900">Filters</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(false)}
+                  aria-label="Close filters panel"
+                  className="inline-flex items-center justify-center rounded-lg p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
               <div className="grid md:grid-cols-3 gap-4">
                 {/* Price Range */}
                 <div className="space-y-2">
@@ -508,18 +535,18 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
                 </div>
 
                 {/* Filter Actions */}
-                <div className="md:col-span-3 flex justify-end gap-4 mt-4">
+                <div className="md:col-span-3 flex flex-col sm:flex-row sm:justify-end gap-3 mt-4">
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    className="w-full sm:w-auto py-2 px-4 rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
                   >
                     Reset Filters
                   </button>
                   <button
                     type="button"
                     onClick={applyFilters}
-                    className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    className="w-full sm:w-auto py-2 px-4 rounded-lg font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors"
                   >
                     Apply Filters
                   </button>
@@ -669,21 +696,26 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
                   </Link>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-6">
+                <div className="grid md:grid-cols-3 gap-6 [grid-auto-rows:1fr]">
                   {servicesData.map((service) => (
                     <Link 
                       href={`/tradespeople/${service.slug}`}
                       key={service.id} 
-                      className="group"
+                      className="group block h-full"
                     >
-                      <div className="bg-white rounded-xl shadow-lg overflow-hidden transform transition-all hover:-translate-y-2 hover:shadow-xl">
+                      <div className="bg-white rounded-xl shadow-lg overflow-hidden transform transition-all hover:-translate-y-2 hover:shadow-xl h-full min-h-[31rem] flex flex-col">
                         <div className="relative">
-                          <img
-                            src={service.imageUrls[0]}
-                            alt={service.title}
-                            className="w-full h-56 object-cover"
-                            loading="lazy"
-                          />
+                          <div className="relative w-full aspect-video">
+                            <Image
+                              src={getCleanListingImageUrl(service.imageUrls)}
+                              alt={service.title}
+                              fill
+                              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                              className="object-cover"
+                              loading="lazy"
+                              unoptimized
+                            />
+                          </div>
                           <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm">
                             {service.serviceType}
                           </div>
@@ -704,16 +736,18 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
                           )}
                         </div>
                         
-                        <div className="p-6">
-                          <h3 className="text-xl font-bold text-blue-900 mb-2 group-hover:text-blue-700 transition-colors line-clamp-2">
+                        <div className="p-6 flex flex-col flex-1">
+                          <h3 className="text-xl font-bold text-blue-900 mb-2 group-hover:text-blue-700 transition-colors line-clamp-2 min-h-[3.5rem]">
                             {service.title}
                           </h3>
                           
-                          {service.provider && (
-                            <p className="text-gray-600 mb-2">{service.provider}</p>
+                          {service.provider ? (
+                            <p className="text-gray-600 mb-2 line-clamp-1 min-h-6">{service.provider}</p>
+                          ) : (
+                            <p className="invisible mb-2 min-h-6">placeholder</p>
                           )}
                           
-                          <div className="flex flex-wrap items-center gap-2 mb-3">
+                          <div className="flex flex-wrap items-center gap-2 mb-3 min-h-[2rem] max-h-[2rem] overflow-hidden">
                             {/* Rating badge */}
                             {service.rating && (
                               <div className="flex items-center text-sm bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
@@ -755,7 +789,7 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
                             <span className="line-clamp-1">{service.location}</span>
                           </div>
                           
-                          <div className="flex justify-between items-center">
+                          <div className="flex justify-between items-center mt-auto">
                             <div className="text-lg font-bold text-blue-900">
                               {service.priceString || 
                                (service.chargeType === 'fixed_rate' && service.fixedRate && `₦${formatPrice(service.fixedRate)}`) ||

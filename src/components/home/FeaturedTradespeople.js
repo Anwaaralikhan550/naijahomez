@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { MapPin, Star, Loader2 } from 'lucide-react';
 import apiService from '@/services/api';
+import { getCleanListingImageUrl } from '@/utils/imageUtils';
 
 const FeaturedTradespeople = () => {
   const [tradespeople, setTradespeople] = useState([]);
@@ -72,18 +73,7 @@ const FeaturedTradespeople = () => {
   }
 
   if (tradespeople.length === 0) {
-    return (
-      <div className="py-16 bg-gray-50">
-        <div className="max-w-6xl mx-auto px-4">
-          <h2 className="text-3xl font-bold text-blue-900 mb-12">
-            Top Rated Tradespeople
-          </h2>
-          <div className="text-center py-12 bg-gray-100 rounded-lg">
-            <p className="text-gray-600">No featured tradespeople available</p>
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -110,12 +100,12 @@ const FeaturedTradespeople = () => {
             <Link 
               key={service.id}
               href={`/tradespeople/${service.slug}`}
-              className="block group"
+              className="block group h-full"
             >
-              <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow">
+              <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow h-full flex flex-col">
                 <div className="relative">
                   <img
-                    src={service.imageUrls?.[0] || '/api/placeholder/400/300'}
+                    src={getCleanListingImageUrl(service.imageUrls)}
                     alt={service.title}
                     className="w-full h-48 object-cover"
                     loading="lazy"
@@ -124,23 +114,23 @@ const FeaturedTradespeople = () => {
                     {service.serviceType}
                   </span>
                 </div>
-                <div className="p-4">
-                  <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-1">
+                <div className="p-4 flex flex-col flex-1">
+                  <h3 className="text-lg font-semibold text-blue-900 mb-2 group-hover:text-blue-700 line-clamp-2 min-h-[3.5rem]">
                     {service.title}
                   </h3>
-                  <p className="text-gray-600 mb-3 line-clamp-1">{service.provider}</p>
+                  <p className="text-gray-600 mb-3 line-clamp-1 min-h-6">{service.provider}</p>
                   <div className="flex items-center gap-2 mb-3">
                     <Star size={16} className="text-orange-500" />
                     <span className="font-medium">{service.rating}</span>
                     <span className="text-gray-500">({service.reviewCount} reviews)</span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mt-auto">
                     <div className="text-lg font-bold text-blue-900">
                       {service.priceString}
                     </div>
                     <div className="flex items-center text-gray-600 text-sm">
                       <MapPin size={14} className="mr-1" />
-                      <span>{service.location}</span>
+                      <span className="line-clamp-1">{service.location}</span>
                     </div>
                   </div>
                 </div>

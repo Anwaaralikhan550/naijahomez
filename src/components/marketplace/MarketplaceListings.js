@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { MapPin, Tag, Clock, Search as SearchIcon, Filter, X, Loader2 } from 'lucide-react';
+import { MapPin, Tag, Clock, Search as SearchIcon, Filter, X, Loader2, Star } from 'lucide-react';
 import apiService from '@/services/api';
 import { slugify } from '@/utils/slugify';
 import { withProximityFilter } from '@/utils/withProximityFilter';
@@ -31,7 +31,7 @@ function MarketplaceListings(props) {
   const [isLocalLoading, setIsLocalLoading] = useState(true);
   const [error, setError] = useState(null);
   const [hasMoreLocal, setHasMoreLocal] = useState(true);
-  const [subcategory, setSubcategory] = useState('computers-laptops');
+  const [subcategory, setSubcategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({
     condition: '',
@@ -44,6 +44,21 @@ function MarketplaceListings(props) {
   const [totalCount, setTotalCount] = useState(0);
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+
+  const parseDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate && typeof value.toDate === 'function') return value.toDate();
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPromotedActive = (item) => {
+    if (!item?.isPromoted) return false;
+    const expiry = parseDateValue(item?.promotionExpiry);
+    if (!expiry) return true;
+    return expiry.getTime() > Date.now();
+  };
   
   // Search input ref for dropdown positioning
   const searchInputRef = useRef(null);
@@ -79,9 +94,14 @@ function MarketplaceListings(props) {
     try {
       // Use API service to get marketplace items
       const response = await apiService.getMarketplaceItems({
-        limit: 50,
+        limit: 60,
         ...(searchQuery.trim() && { search: searchQuery.trim() }),
         ...(subcategory && { category: subcategory }),
+        ...(filters.condition && { condition: filters.condition }),
+        ...(filters.paymentType && { paymentType: filters.paymentType }),
+        ...(filters.collectionType && { collectionType: filters.collectionType }),
+        ...(filters.minPrice && { minPrice: filters.minPrice }),
+        ...(filters.maxPrice && { maxPrice: filters.maxPrice }),
         sortBy: 'createdAt',
         sortOrder: 'desc'
       });
@@ -98,47 +118,13 @@ function MarketplaceListings(props) {
         slug: item.slug || slugify(`${item.title}-${item.id}`)
       }));
       
-      // Apply filters
-      
-      // Apply condition filter
-      if (filters.condition) {
-        allItems = allItems.filter(item => item.condition === filters.condition);
-      }
-      
-      // Apply payment type filter
-      if (filters.paymentType) {
-        allItems = allItems.filter(item => item.paymentType === filters.paymentType);
-      }
-      
-      // Apply collection type filter
-      if (filters.collectionType) {
-        allItems = allItems.filter(item => item.collectionType === filters.collectionType);
-      }
-      
-      // Apply price filters
-      if (filters.minPrice) {
-        const minPriceValue = parseFloat(filters.minPrice);
-        allItems = allItems.filter(item => {
-          const price = extractPriceValue(item);
-          return price >= minPriceValue;
-        });
-      }
-      
-      if (filters.maxPrice) {
-        const maxPriceValue = parseFloat(filters.maxPrice);
-        allItems = allItems.filter(item => {
-          const price = extractPriceValue(item);
-          return price <= maxPriceValue;
-        });
-      }
-      
       // Store the original filtered results (before pagination)
       setOriginalData(allItems);
       
       // Apply pagination
       setFilteredItems(allItems.slice(0, displayCount));
       
-      // Check if there are more items to load
+      // Check if there are more locally loaded items to reveal
       setHasMoreLocal(allItems.length > displayCount);
     } catch (error) {
       console.error('Error loading items:', error);
@@ -248,7 +234,7 @@ function MarketplaceListings(props) {
     }
     
     return (
-      <div className="grid md:grid-cols-3 gap-6">
+      <div className="grid md:grid-cols-3 gap-6 [grid-auto-rows:1fr]">
         {itemsToDisplay.map((item) => (
           <MarketplaceListingCard 
             key={item.id} 
@@ -367,6 +353,7 @@ function MarketplaceListings(props) {
   
   // All marketplace subcategories
   const marketplaceSubcategories = {
+    '': 'All Items',
     'computers-laptops': 'Computers & Laptops',
     'mobile-phones': 'Mobile Phones',
     'tablets': 'Tablets',
@@ -380,29 +367,21 @@ function MarketplaceListings(props) {
   }, [subcategory]);
   return (
     <div className="bg-gray-50 min-h-screen">
-      <div className="bg-white shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="bg-white shadow-sm sticky top-14 md:top-16 lg:top-20 z-40">
+        <div className="max-w-6xl mx-auto px-4 py-4">
           {/* Title */}
-          <h1 className="text-3xl font-bold text-blue-900 mb-6">
-            Marketplace - {marketplaceSubcategories[subcategory]}
+          <h1 className="text-2xl font-bold text-blue-900 mb-4">
+            {subcategory ? `Marketplace - ${marketplaceSubcategories[subcategory]}` : 'Marketplace'}
           </h1>
 
           {/* Mobile Controls */}
-          <div className="flex md:hidden items-center gap-2 mb-4">
+          <div className="flex md:hidden items-center gap-2 mb-3">
             <button
               onClick={() => setIsCategoriesOpen(!isCategoriesOpen)}
-              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              className="flex-shrink-0 bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors touch-target min-h-[44px] min-w-[44px] flex items-center justify-center"
               title="Categories"
             >
               <Tag size={20} />
-            </button>
-          
-            <button
-              onClick={() => setIsFiltersOpen(!isFiltersOpen)}
-              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-              title="Filters"
-            >
-              <Filter size={20} />
             </button>
           </div>
 
@@ -411,7 +390,7 @@ function MarketplaceListings(props) {
             md:block
             ${isCategoriesOpen ? 'block' : 'hidden'}
           `}>
-            <div className="flex flex-wrap gap-2 mb-6">
+            <div className="flex flex-wrap gap-2 mb-4">
               {/* Categories */}
               {Object.entries(marketplaceSubcategories).map(([key, label]) => (
                 <button
@@ -434,7 +413,7 @@ function MarketplaceListings(props) {
           </div>
 
           {/* Search bar */}
-          <form onSubmit={handleSearch} className="mb-6 flex gap-2">
+          <form onSubmit={handleSearch} className="mb-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
             <div className="relative flex-grow" ref={searchInputRef}>
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <SearchIcon className="text-gray-400" size={20} />
@@ -445,7 +424,7 @@ function MarketplaceListings(props) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={handleSearchFocus}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base sm:text-sm"
               />
               <SearchDropdown
                 isOpen={isDropdownOpen}
@@ -459,13 +438,34 @@ function MarketplaceListings(props) {
             <button 
               type="submit"
               disabled={isLocalLoading}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300"
+              className="bg-blue-500 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300 touch-target min-h-[44px] text-base sm:text-sm font-medium"
             >
               {isLocalLoading ? 'Searching...' : 'Search'}
             </button>
+            <button 
+              type="button"
+              onClick={() => setIsFiltersOpen(!isFiltersOpen)}
+              className="flex-shrink-0 bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 touch-target min-h-[44px] min-w-[44px] justify-center"
+              aria-label={isFiltersOpen ? 'Hide filters' : 'Show filters'}
+              aria-expanded={isFiltersOpen}
+            >
+              <Filter size={20} />
+              <span className="hidden sm:inline">Filters</span>
+            </button>
           </form>
           {/* Filters Section */}
-          <div className={`md:block ${isFiltersOpen ? 'block' : 'hidden'}`}>
+          <div className={isFiltersOpen ? 'block' : 'hidden'}>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900">Filters</h2>
+              <button
+                type="button"
+                onClick={() => setIsFiltersOpen(false)}
+                aria-label="Close filters panel"
+                className="inline-flex items-center justify-center rounded-lg p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
             <div className="grid md:grid-cols-2 gap-4 mb-6">
               <div className="grid md:grid-cols-2 gap-4">
                 {/* Product Condition filter */}
@@ -616,17 +616,56 @@ function MarketplaceListings(props) {
                 <p className="text-sm text-gray-600">
                   Showing {(nearbyEnabled ? proximityFilteredData : filteredItems).length} of {totalCount} results
                 </p>
-                <Link
-                  href="/dashboard?tab=post-ad&type=marketplace"
-                  className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14M5 12h14"/>
-                  </svg>
-                  Post Marketplace Listing
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/dashboard?tab=my-ads&action=promote&type=marketplace"
+                    className="bg-amber-100 text-amber-800 px-3 py-2 rounded-lg hover:bg-amber-200 transition-colors text-sm inline-flex items-center gap-1"
+                  >
+                    <Star size={14} />
+                    Promote Listing
+                  </Link>
+                  <Link
+                    href="/dashboard?tab=post-ad&type=marketplace"
+                    className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                    Post Marketplace Listing
+                  </Link>
+                </div>
               </div>
             )}
+
+            {(() => {
+              const baseItems = (nearbyEnabled ? proximityFilteredData : filteredItems) || [];
+              const promotedItems = baseItems.filter((item) => isPromotedActive(item));
+              if (promotedItems.length === 0) return null;
+
+              return (
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                  <div className="flex items-center gap-2 mb-3 text-amber-800 text-sm font-semibold">
+                    <Star size={14} />
+                    Sponsored Marketplace Listings
+                  </div>
+                  <div className="grid md:grid-cols-3 gap-4 [grid-auto-rows:1fr]">
+                    {promotedItems.slice(0, 3).map((item) => (
+                      <Link
+                        key={`sponsored-${item.id}`}
+                        href={`/marketplace/${item.slug || item.id}`}
+                        className="bg-white rounded-lg border border-amber-100 p-3 hover:shadow-sm transition-shadow h-full flex flex-col"
+                      >
+                        <p className="text-sm font-semibold text-blue-900 line-clamp-2 min-h-10">{item.title}</p>
+                        <p className="text-xs text-gray-600 line-clamp-1 mt-1">{item.location}</p>
+                        <p className="text-sm font-bold text-blue-800 mt-auto pt-2">
+                          {item.priceString || (item.price ? `N${item.price.toLocaleString()}` : 'Contact seller')}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Render Items Grid */}
             {renderItemsGrid()}

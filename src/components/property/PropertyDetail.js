@@ -1,7 +1,8 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { use } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { 
   MapPin, 
   Home, 
@@ -11,27 +12,42 @@ import {
   Share, 
   Heart, 
   Flag, 
-  Calendar, 
   Briefcase,
   Wifi,
   Wind,
   Shield,
   DollarSign,
-  ChevronLeft,
-  ChevronRight,
-  Maximize2,
-  Minimize2,
   Tag,
   AlertTriangle,
-  Phone,
   Mail,
   MessageCircle,
-  Star
+  Star,
+  CheckCircle
 } from 'lucide-react';
 import apiService from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import toast from 'react-hot-toast';
-import DOMPurify from 'isomorphic-dompurify';
+import { ImageGallery } from '@/components/property/ImageGallery';
+import ListingReportModal from '@/components/reporting/ListingReportModal';
+import SponsoredAdSlot from '@/components/advertising/SponsoredAdSlot';
+import ListingQrCode from '@/components/shared/ListingQrCode';
+import { trackImpression, trackJourneyStep } from '@/lib/analytics/events';
+
+function sanitizeDescriptionHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<script[\s\S]*?\/>/gi, '')
+    .replace(/<script[\s\S]*?>/gi, '')
+    .replace(/\s*on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+    .replace(/javascript\s*:/gi, '')
+    .replace(/vbscript\s*:/gi, '')
+    .replace(/data\s*:\s*(?!image\/)[^,]*,/gi, 'data:blocked,')
+    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<object[\s\S]*?>[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed[\s\S]*?>/gi, '')
+    .replace(/<form[\s\S]*?>[\s\S]*?<\/form>/gi, '')
+    .trim();
+}
 
 // Helper function to format price with commas
 function formatPrice(value) {
@@ -87,13 +103,12 @@ export default function PropertyDetail({ params }) {
   const [similarProperties, setSimilarProperties] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedImage, setSelectedImage] = useState(0);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [thumbnailsScrollPosition, setThumbnailsScrollPosition] = useState(0);
-  const [isSaved, setIsSaved] = useState(false);
+  const [isFavorited, setIsFavorited] = useState(false);
   const [showPhone, setShowPhone] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const trackedImpressionsRef = useRef(new Set());
 
   // Get authenticated user from context
   const { user } = useAuth();
@@ -120,11 +135,6 @@ export default function PropertyDetail({ params }) {
         const propertyData = response.data;
         setProperty(propertyData);
         
-        // Set initial main image if available
-        if (propertyData.imageUrls && propertyData.imageUrls.length > 0) {
-          setSelectedImage(0);
-        }
-
         // Set similar properties from API response
         if (response.similar && response.similar.length > 0) {
           setSimilarProperties(response.similar);
@@ -149,30 +159,43 @@ export default function PropertyDetail({ params }) {
     };
   }, [slug]);
 
-  // Handle image navigation
-  const handlePrevImage = () => {
-    if (!property || !property.imageUrls) return;
-    setSelectedImage((prev) => 
-      prev === 0 ? property.imageUrls.length - 1 : prev - 1
-    );
-  };
+  useEffect(() => {
+    if (typeof window === 'undefined' || !property) return;
 
-  const handleNextImage = () => {
-    if (!property || !property.imageUrls) return;
-    setSelectedImage((prev) => 
-      prev === property.imageUrls.length - 1 ? 0 : prev + 1
-    );
-  };
+    try {
+      const storageId = property.id || property.slug;
+      if (!storageId) {
+        setIsFavorited(false);
+        return;
+      }
 
-  // Handle thumbnail scrolling
-  const scrollThumbnails = (direction) => {
-    const container = document.getElementById('thumbnails-container');
-    if (container) {
-      const scrollAmount = direction * (container.offsetWidth / 2);
-      setThumbnailsScrollPosition(prev => prev + scrollAmount);
-      container.scrollLeft += scrollAmount;
+      const rawSaved = localStorage.getItem('savedItems');
+      const savedItems = rawSaved ? JSON.parse(rawSaved) : [];
+      setIsFavorited(savedItems.some((item) => (item.id || item.slug) === storageId));
+    } catch (error) {
+      console.error('Failed to load favorites state:', error);
+      setIsFavorited(false);
     }
-  };
+  }, [property]);
+
+  useEffect(() => {
+    if (!property) return;
+
+    const listingId = property.id || property.slug;
+    if (!listingId) return;
+
+    if (trackedImpressionsRef.current.has(listingId)) {
+      return;
+    }
+
+    trackedImpressionsRef.current.add(listingId);
+    trackImpression(listingId, 'properties');
+    trackJourneyStep('listing_view', {
+      source: 'property_detail',
+      location: property.location || property.address?.state || '',
+      listingType: property.propertyType || property.type || property.listingType || 'property'
+    });
+  }, [property]);
 
   const handleShareClick = () => {
     // Simple share functionality using Web Share API if available
@@ -189,15 +212,53 @@ export default function PropertyDetail({ params }) {
     }
   };
 
-  const handleSaveClick = () => {
-    setIsSaved(!isSaved);
-    // In a real implementation, you would save this to the user's profile
-    toast.success(isSaved ? 'Property removed from saved items' : 'Property saved to your favorites');
+  const persistFavoriteState = async (nextState) => {
+    if (typeof window === 'undefined') {
+      throw new Error('Favorites can only be updated in browser');
+    }
+
+    const storageId = property?.id || property?.slug;
+    if (!storageId) {
+      throw new Error('Unable to identify this property');
+    }
+
+    const rawSaved = localStorage.getItem('savedItems');
+    const savedItems = rawSaved ? JSON.parse(rawSaved) : [];
+    const filtered = savedItems.filter((item) => (item.id || item.slug) !== storageId);
+
+    if (nextState) {
+      filtered.push({
+        id: property?.id || null,
+        slug: property?.slug || null,
+        title: property?.title || 'Property',
+        location: property?.location || '',
+        imageUrl: property?.imageUrls?.[0] || '',
+        price: property?.price || property?.rate || null,
+        listingType: property?.listingType || null,
+        type: 'property'
+      });
+    }
+
+    localStorage.setItem('savedItems', JSON.stringify(filtered));
+  };
+
+  const handleSaveClick = async () => {
+    const previousState = isFavorited;
+    const nextState = !previousState;
+    setIsFavorited(nextState);
+
+    try {
+      await persistFavoriteState(nextState);
+      toast.success(nextState ? 'Property saved to your favorites' : 'Property removed from saved items');
+    } catch (error) {
+      console.error('Failed to update favorite state:', error);
+      setIsFavorited(previousState);
+      toast.error('Could not update favorite. Please try again.');
+    }
   };
 
   const handleReportClick = () => {
-    // Simple alert for report functionality
-    alert('Thank you for reporting this listing. Our team will review it shortly.');
+    setShowReportModal(true);
   };
 
   const handleMessageSubmit = async (e) => {
@@ -464,15 +525,28 @@ export default function PropertyDetail({ params }) {
   
   // Prepare WhatsApp URL if phone is available
   const whatsappUrl = phoneNumber 
-    ? `https://wa.me/${phoneNumber.replace(/\D/g, '')}?text=Hello, I'm interested in your property listing on Nijahomzs: ${property.title}` 
+    ? `https://wa.me/${phoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent(`Hello, I'm interested in your listing on Nijahomzs: ${property.title}`)}` 
     : null;
+
+  const trackContactJourney = (step) => {
+    trackJourneyStep(step, {
+      source: 'property_detail_contact',
+      location: property.location || property.address?.state || '',
+      listingType: property.propertyType || property.type || property.listingType || 'property'
+    });
+  };
   
   // Safely access amenities
   const amenities = Array.isArray(property.amenities) ? property.amenities : [];
-
-  // Get valid images array and current image
-  const images = property.imageUrls || [];
-  const currentImage = images[selectedImage] || '';
+  const normalizedKycStatus = (property?.user?.kycStatus || property?.kycStatus || property?.agent?.kycStatus || '').toString().toLowerCase();
+  const isSellerVerified = Boolean(
+    property?.agent?.isVerified ||
+    property?.agentVerified ||
+    property?.userVerified ||
+    property?.isVerified ||
+    property?.verified ||
+    normalizedKycStatus === 'verified'
+  );
 
   return (
     <div className="bg-white min-h-screen">
@@ -480,19 +554,28 @@ export default function PropertyDetail({ params }) {
         {/* Property Header */}
         <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-6">
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
               <h1 className="text-3xl font-bold text-blue-900">{property.title}</h1>
+              {isSellerVerified && (
+                <span
+                  title="Identity verified"
+                  className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                >
+                  <CheckCircle size={12} />
+                  Verified
+                </span>
+              )}
               
               {/* Listing Type Badge */}
               <span className={`
-                px-3 py-1 rounded-full text-sm font-medium
+                inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium leading-none
                 ${property.listingType === 'sale' || (!property.listingType && isForSale(property))
                   ? 'bg-green-500 text-white' 
                   : 'bg-blue-500 text-white'}
               `}>
                 {property.listingType === 'sale' || (!property.listingType && isForSale(property))
-                  ? 'For Sale' 
-                  : 'For Rent'}
+                  ? 'For\u00A0Sale' 
+                  : 'For\u00A0Rent'}
               </span>
             </div>
             <div className="flex items-center text-gray-700 mb-2">
@@ -529,105 +612,10 @@ export default function PropertyDetail({ params }) {
           <div className="md:col-span-2 space-y-6">
             {/* Image Gallery */}
             <div className="bg-white rounded-xl shadow-md overflow-hidden">
-              {/* Main Image */}
-              <div className="relative w-full aspect-[4/3] bg-gray-100">
-                {images.length > 0 ? (
-                  <div className="relative h-full">
-                    <img
-                      src={currentImage}
-                      alt={`Property view ${selectedImage + 1}`}
-                      className="w-full h-full object-cover"
-                      loading="eager"
-                    />
-                  
-                    {/* Image Navigation Controls */}
-                    <div className="absolute inset-0 flex items-center justify-between px-4">
-                      <button
-                        onClick={handlePrevImage}
-                        className="bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition"
-                        aria-label="Previous image"
-                      >
-                        <ChevronLeft size={20} />
-                      </button>
-                      <button
-                        onClick={handleNextImage}
-                        className="bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition"
-                        aria-label="Next image"
-                      >
-                        <ChevronRight size={20} />
-                      </button>
-                    </div>
-                    
-                    {/* Fullscreen Toggle */}
-                    <button
-                      onClick={() => setIsFullscreen(true)}
-                      className="absolute top-3 right-3 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition"
-                      aria-label="Toggle fullscreen"
-                    >
-                      <Maximize2 size={20} />
-                    </button>
-                    
-                    {/* Image Counter */}
-                    <div className="absolute bottom-3 right-3 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
-                      {selectedImage + 1} / {images.length}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <span className="text-gray-400">No image available</span>
-                  </div>
-                )}
-              </div>
-              
-              {/* Thumbnails with scroll buttons */}
-              {images.length > 1 && (
-                <div className="p-4 relative">
-                  {/* Left scroll button */}
-                  {images.length > 5 && (
-                    <button 
-                      onClick={() => scrollThumbnails(-1)}
-                      className="absolute left-2 top-1/2 transform -translate-y-1/2 z-10 bg-gray-200 text-gray-700 p-1 rounded-full hover:bg-gray-300"
-                      aria-label="Scroll thumbnails left"
-                    >
-                      <ChevronLeft size={16} />
-                    </button>
-                  )}
-                  
-                  {/* Thumbnails container */}
-                  <div 
-                    id="thumbnails-container"
-                    className="flex gap-2 overflow-x-auto px-6 scrollbar-hide scroll-smooth"
-                    style={{ scrollBehavior: 'smooth' }}
-                  >
-                    {images.map((image, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setSelectedImage(index)}
-                        className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden transition
-                          ${selectedImage === index ? 'ring-2 ring-blue-500 scale-105' : 'opacity-70 hover:opacity-100'}`}
-                      >
-                        <img
-                          src={image}
-                          alt={`Thumbnail ${index + 1}`}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      </button>
-                    ))}
-                  </div>
-                  
-                  {/* Right scroll button */}
-                  {images.length > 5 && (
-                    <button 
-                      onClick={() => scrollThumbnails(1)}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 z-10 bg-gray-200 text-gray-700 p-1 rounded-full hover:bg-gray-300"
-                      aria-label="Scroll thumbnails right"
-                    >
-                      <ChevronRight size={16} />
-                    </button>
-                  )}
-                </div>
-              )}
+              <ImageGallery
+                images={property.imageUrls || []}
+                coverSourceWatermark={Boolean(property.isScraped || property.isScrapedData || property.dataSource === 'scraped')}
+              />
             </div>
 
             {/* Property Details */}
@@ -936,7 +924,7 @@ export default function PropertyDetail({ params }) {
               <h2 className="text-xl font-semibold text-blue-900 mb-4">About This Property</h2>
               <div
                 className="prose max-w-none text-gray-700"
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(property.description || '') }}
+                dangerouslySetInnerHTML={{ __html: sanitizeDescriptionHtml(property.description || '') }}
               />
             </div>
 
@@ -945,12 +933,12 @@ export default function PropertyDetail({ params }) {
               <button
                 onClick={handleSaveClick}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors
-                  ${isSaved 
+                  ${isFavorited
                     ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' 
                     : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}
               >
-                <Heart size={20} fill={isSaved ? "currentColor" : "none"} />
-                <span>{isSaved ? 'Saved' : 'Save'}</span>
+                <Heart size={20} fill={isFavorited ? "currentColor" : "none"} />
+                <span>{isFavorited ? 'Saved' : 'Save'}</span>
               </button>
               
               <button
@@ -963,10 +951,10 @@ export default function PropertyDetail({ params }) {
               
               <button
                 onClick={handleReportClick}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-700 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-700 rounded-lg border border-gray-200 hover:text-red-700 hover:border-red-200 hover:bg-red-50 transition-colors"
               >
                 <Flag size={20} />
-                <span>Report Listing</span>
+                <span>Report this Ad</span>
               </button>
             </div>
           </div>
@@ -981,17 +969,31 @@ export default function PropertyDetail({ params }) {
               
               {/* Agent/Seller Profile */}
               <div className="flex items-start gap-4 mb-6">
-                <div className="w-16 h-16 bg-blue-100 rounded-full overflow-hidden flex-shrink-0">
-                  <img
+                <div className="relative w-16 h-16 bg-blue-100 rounded-full overflow-hidden flex-shrink-0">
+                  <Image
                     src={property.agent?.photoURL || property.userPhotoURL || "/api/placeholder/400/400"}
                     alt={property.agent?.name || property.userName || "User"}
-                    className="w-full h-full object-cover"
+                    fill
+                    sizes="64px"
+                    className="object-cover"
+                    loading="lazy"
                   />
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">
-                    {property.agent?.name || property.userName || "Contact Seller"}
-                  </h3>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-semibold text-gray-900 break-words">
+                      {property.agent?.name || property.userName || "Contact Seller"}
+                    </h3>
+                    {isSellerVerified && (
+                      <span
+                        title="Identity verified"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full"
+                      >
+                        <CheckCircle size={12} />
+                        Verified
+                      </span>
+                    )}
+                  </div>
                   {property.agent?.title && <p className="text-blue-600 text-sm">{property.agent.title}</p>}
                   
                   {/* Only show ratings if they exist */}
@@ -1069,12 +1071,13 @@ export default function PropertyDetail({ params }) {
                       href={whatsappUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xl font-bold block hover:text-green-700 flex items-center justify-center gap-2"
+                      onClick={() => trackContactJourney('whatsapp_click')}
+                      className="w-full min-w-0 text-base md:text-xl font-bold block hover:text-green-700 flex items-center justify-center gap-2 break-all leading-tight"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="text-green-600">
                         <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                       </svg>
-                      {phoneNumber}
+                      <span className="break-all">{phoneNumber}</span>
                     </a>
                     <button 
                       type="button"
@@ -1088,16 +1091,31 @@ export default function PropertyDetail({ params }) {
               ) : (
                 <button 
                   type="button"
-                  onClick={() => setShowPhone(true)}
-                  className="w-full bg-green-500 text-white py-4 rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2"
+                  onClick={() => {
+                    setShowPhone(true);
+                    trackContactJourney('call_click');
+                  }}
+                  className="w-full bg-green-500 text-white py-4 rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2 flex-wrap px-3 text-sm md:text-base"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="mr-1">
                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                   </svg>
-                  <span>Contact via WhatsApp</span>
+                  <span className="text-center">Contact via WhatsApp</span>
                 </button>
               )
             )}
+
+            <SponsoredAdSlot
+              slot="property_detail_sidebar"
+              location={property.location || property.address?.state || ''}
+              propertyCategory={property.propertyType || property.type || property.listingType || 'property'}
+              variant="card"
+            />
+
+            <ListingQrCode
+              url={property.slug ? `/property/${property.slug}` : `/property/${property.id || slug}`}
+              title={property.title}
+            />
             
             {/* Similar Properties */}
             {similarProperties.length > 0 ? (
@@ -1113,11 +1131,16 @@ export default function PropertyDetail({ params }) {
                       className="block group"
                     >
                       <div className="flex items-start gap-3">
-                        <img
-                          src={similarProperty.imageUrls?.[0] || '/api/placeholder/400/300'}
-                          alt={similarProperty.title}
-                          className="w-20 h-16 md:w-24 md:h-20 object-cover rounded-lg shrink-0"
-                        />
+                        <div className="relative w-20 h-16 md:w-24 md:h-20 rounded-lg shrink-0 overflow-hidden">
+                          <Image
+                            src={similarProperty.imageUrls?.[0] || '/api/placeholder/400/300'}
+                            alt={similarProperty.title}
+                            fill
+                            sizes="(max-width: 768px) 80px, 96px"
+                            className="object-cover"
+                            loading="lazy"
+                          />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="text-base font-semibold text-blue-900 group-hover:text-blue-700 truncate">
                             {similarProperty.title}
@@ -1151,49 +1174,20 @@ export default function PropertyDetail({ params }) {
             )}
           </div>
         </div>
-        
-        {/* Fullscreen Image Modal */}
-        {isFullscreen && (
-          <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
-            <button
-              onClick={() => setIsFullscreen(false)}
-              className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full z-10"
-            >
-              <Minimize2 size={24} />
-            </button>
-            
-            <button
-              onClick={handlePrevImage}
-              className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/50 text-white p-2 rounded-full z-10"
-            >
-              <ChevronLeft size={24} />
-            </button>
-
-            <img
-              src={currentImage}
-              alt="Full screen view"
-              className="max-h-screen max-w-full object-contain"
-            />
-
-            <button
-              onClick={handleNextImage}
-              className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/50 text-white p-2 rounded-full z-10"
-            >
-              <ChevronRight size={24} />
-            </button>
-          </div>
-        )}
-        
-        <style jsx>{`
-          .scrollbar-hide {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-          }
-          .scrollbar-hide::-webkit-scrollbar {
-            display: none;
-          }
-        `}</style>
       </div>
+      <ListingReportModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        listing={{
+          listingId: property.id || property.slug || slug,
+          listingTitle: property.title,
+          listingType: 'property',
+          collectionName: 'properties',
+          listingSlug: property.slug || slug,
+          listingPath: property.slug ? `/property/${property.slug}` : '',
+          listingUrl: property.slug ? `/property/${property.slug}` : ''
+        }}
+      />
     </div>
   );
 }

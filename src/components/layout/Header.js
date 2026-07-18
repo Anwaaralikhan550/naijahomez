@@ -2,30 +2,35 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Menu, X, User, ChevronDown, LogOut, Settings, Building2, Bell, AlertCircle, Mail } from 'lucide-react';
+import Image from 'next/image';
+import { Menu, X, User, ChevronDown, LogOut, Settings, Building2, Bell, AlertCircle } from 'lucide-react';
 import GeolocationButton from '@/components/shared/GeolocationButton';
+import NotificationDropdown from '@/components/layout/NotificationDropdown';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
 
+const navItems = [
+  { name: 'Property', href: '/property' },
+  { name: 'Housemate', href: '/housemate' },
+  { name: 'Marketplace', href: '/marketplace' },
+  { name: 'Tradespeople', href: '/tradespeople' },
+  { name: 'Noticeboard', href: '/noticeboard' }
+];
+
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const { user, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const userMenuRef = useRef(null);
+  const notificationRef = useRef(null);
+  const notifications = [];
 
-  // Check if user is currently in The Hub
-  const isInHub = pathname?.startsWith('/the-hub');
-
-  const navItems = [
-    { name: 'Property', href: '/property' },
-    { name: 'Housemate', href: '/housemate' },
-    { name: 'Marketplace', href: '/marketplace' },
-    { name: 'Tradespeople', href: '/tradespeople' },
-    { name: 'Noticeboard', href: '/noticeboard' }
-  ];
+  // Check if user is currently in community section
+  const isInHub = pathname?.startsWith('/the-hub') || pathname?.startsWith('/dashboard/community');
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -33,16 +38,26 @@ export default function Header() {
       if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
         setIsUserMenuOpen(false);
       }
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setIsNotificationOpen(false);
+      }
     };
 
-    if (isUserMenuOpen) {
+    if (isUserMenuOpen || isNotificationOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isUserMenuOpen]);
+  }, [isUserMenuOpen, isNotificationOpen]);
+
+  // Auto-close mobile menu whenever route changes
+  useEffect(() => {
+    setIsMenuOpen(false);
+    setIsUserMenuOpen(false);
+    setIsNotificationOpen(false);
+  }, [pathname]);
 
   const handleLogout = async () => {
     try {
@@ -64,24 +79,27 @@ export default function Header() {
         backgroundPosition: 'right bottom'
       }}
     >
-      <div className="w-full px-4 md:px-6 lg:px-8 py-0 flex items-center justify-between">
+      <div className="w-full px-2 md:px-3 lg:px-4 py-0 flex items-center justify-between">
         {/* Logo */}
-        <Link href="/" className="flex items-center h-14 md:h-16 lg:h-20 flex-shrink-0 -ml-5">
-          <img
+        <Link href="/" className="flex items-center h-12 md:h-14 lg:h-16 flex-shrink-0 ml-0 lg:-ml-5">
+          <Image
             src="/nijahomzs-logo.png"
             alt="Nijahomzs Logo"
+            width={256}
+            height={80}
+            sizes="(max-width: 1024px) 192px, 256px"
             className="h-full w-auto object-contain"
           />
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden lg:flex items-center justify-center flex-1 min-w-0 px-4 pr-16 relative z-10">
+        <nav className="hidden lg:flex items-center justify-center flex-1 min-w-0 px-1 pr-6 relative z-10">
           <div className="flex items-center gap-x-5 xl:gap-x-8">
             {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="relative text-white hover:text-orange-200 transition-colors text-lg lg:text-xl xl:text-2xl font-medium group whitespace-nowrap"
+                className="relative text-white hover:text-orange-200 transition-colors text-sm lg:text-base xl:text-lg font-medium group whitespace-nowrap"
               >
                 {item.name}
                 <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-orange-500 transition-all duration-300 ease-in-out group-hover:w-full"></span>
@@ -96,21 +114,38 @@ export default function Header() {
           <GeolocationButton hideText={true} />
 
           {user ? (
-            /* User Dropdown */
-            <div className="relative" ref={userMenuRef}>
-              <button
-                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center space-x-2 text-white hover:text-orange-200 transition-colors"
-              >
-                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
-                  <User className="w-6 h-6" />
-                </div>
-                <span className="text-lg lg:text-xl xl:text-2xl font-medium">{user.displayName || user.email?.split('@')[0]}</span>
-                <ChevronDown className={`w-6 h-6 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {isUserMenuOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg py-2 z-50">
+            <>
+              <div className="relative" ref={notificationRef}>
+                <button
+                  onClick={() => setIsNotificationOpen((prev) => !prev)}
+                  className="relative p-2 text-white hover:text-orange-200 transition-colors"
+                  aria-label="Toggle notifications"
+                >
+                  <Bell className="w-6 h-6" />
+                  {notifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
+                      {notifications.length}
+                    </span>
+                  )}
+                </button>
+                {isNotificationOpen && <NotificationDropdown notifications={notifications} />}
+              </div>
+
+              {/* User Dropdown */}
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  className="flex items-center space-x-2 text-white hover:text-orange-200 transition-colors"
+                >
+                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                    <User className="w-6 h-6" />
+                  </div>
+                  <span className="text-lg lg:text-xl xl:text-2xl font-medium">{user.displayName || user.email?.split('@')[0]}</span>
+                  <ChevronDown className={`w-6 h-6 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {isUserMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg py-2 z-50">
                   <div className="px-4 py-2 border-b">
                     <p className="text-sm font-medium text-gray-900">{user.displayName || 'User'}</p>
                     <p className="text-xs text-gray-500">{user.email}</p>
@@ -136,12 +171,12 @@ export default function Header() {
                   )}
                   
                   <Link
-                    href="/the-hub"
+                    href="/dashboard/community"
                     className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                     onClick={() => setIsUserMenuOpen(false)}
                   >
                     <Building2 className="w-4 h-4 mr-2" />
-                    The Hub
+                    Community Hub
                   </Link>
                   
                   <Link
@@ -150,7 +185,7 @@ export default function Header() {
                     onClick={() => setIsUserMenuOpen(false)}
                   >
                     <Settings className="w-4 h-4 mr-2" />
-                    Dashboard
+                    My Account
                   </Link>
                   
                   <Link
@@ -192,24 +227,25 @@ export default function Header() {
                       Log Out
                     </button>
                   </div>
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             <>
-              {/* The Hub Link */}
+              {/* Community Hub Link */}
               <Link
-                href="/the-hub"
+                href="/dashboard/community"
                 className="flex items-center text-white hover:text-orange-200 transition-colors text-lg lg:text-xl xl:text-2xl font-medium"
               >
                 <Building2 className="w-6 h-6 mr-2" />
-                The Hub
+                Community Hub
               </Link>
 
               {/* Login Button */}
               <Link
                 href="/login"
-                className="px-6 py-2.5 lg:px-7 lg:py-3 bg-white text-blue-600 font-semibold rounded-full hover:bg-gray-100 transition-colors text-lg lg:text-xl xl:text-2xl"
+                className="px-4 py-2 lg:px-5 lg:py-2.5 bg-white text-blue-600 font-semibold rounded-full hover:bg-gray-100 transition-colors text-sm lg:text-base"
               >
                 Login
               </Link>
@@ -237,7 +273,7 @@ export default function Header() {
               <Link
                 key={item.href}
                 href={item.href}
-                className="text-white hover:text-orange-200 transition-colors text-[15px]"
+                className="text-white hover:text-orange-200 transition-colors text-sm"
                 onClick={() => setIsMenuOpen(false)}
               >
                 {item.name}
@@ -247,12 +283,12 @@ export default function Header() {
             {user ? (
               <>
                 <Link 
-                  href="/the-hub" 
+                  href="/dashboard/community" 
                   className="text-white hover:text-orange-200 transition-colors flex items-center"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   <Building2 className="w-4 h-4 mr-1" />
-                  The Hub
+                  Community Hub
                 </Link>
                 
                 <Link 
@@ -261,7 +297,7 @@ export default function Header() {
                   onClick={() => setIsMenuOpen(false)}
                 >
                   <Settings className="w-4 h-4 mr-1" />
-                  Dashboard
+                  My Account
                 </Link>
                 
                 <Link 
@@ -303,12 +339,12 @@ export default function Header() {
             ) : (
               <>
                 <Link 
-                  href="/the-hub" 
+                  href="/dashboard/community" 
                   className="text-white hover:text-orange-200 transition-colors flex items-center"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   <Building2 className="w-4 h-4 mr-1" />
-                  The Hub
+                  Community Hub
                 </Link>
                 
                 <Link 

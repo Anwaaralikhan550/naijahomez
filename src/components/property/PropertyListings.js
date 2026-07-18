@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { MapPin, Bed, Bath, Filter, Search, Loader2, X, Home, Tag, AlertCircle } from 'lucide-react';
+import { MapPin, Bed, Bath, Filter, Search, Loader2, X, Home, Tag, AlertCircle, Star } from 'lucide-react';
 import apiService from '@/services/api';
 import { slugify } from '@/utils/slugify';
 import { useGeolocationContext } from '@/context/GeolocationContext';
@@ -12,6 +12,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import ViewToggle from './ViewToggle';
 import PropertyMap from './PropertyMap';
+import { SourceWatermarkCover } from './ImageGallery';
 
 // Define property types
 const propertyTypes = [
@@ -29,20 +30,6 @@ const listingTypes = [
   { value: 'sale', label: 'For Sale' }
 ];
 
-// Estimated offline inventory split between listing types
-const TOTAL_OFFLINE_PROPERTY_COUNT = 65000;
-const OFFLINE_DISTRIBUTION = {
-  rent: 0.52,
-  sale: 0.48,
-};
-
-const getOfflineCount = (listingType) => {
-  if (listingType === 'rent' || listingType === 'sale') {
-    return Math.round(TOTAL_OFFLINE_PROPERTY_COUNT * OFFLINE_DISTRIBUTION[listingType]);
-  }
-  return TOTAL_OFFLINE_PROPERTY_COUNT;
-};
-
 const PropertyListings = React.memo(function PropertyListings() {
   // Context hooks
   const { nearbyEnabled, searchRadius, location } = useGeolocationContext();
@@ -52,7 +39,7 @@ const PropertyListings = React.memo(function PropertyListings() {
   const [properties, setProperties] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
-  const [totalCount, setTotalCount] = useState(0); // Total properties in Firestore
+  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -74,6 +61,24 @@ const PropertyListings = React.memo(function PropertyListings() {
   // Debounced search query and filters
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
   const debouncedFilters = useDebounce(filters, 800);
+
+  const parseDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate && typeof value.toDate === 'function') return value.toDate();
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPromotedActive = (item) => {
+    if (!item?.isPromoted) return false;
+    const expiry = parseDateValue(item?.promotionExpiry);
+    if (!expiry) return true;
+    return expiry.getTime() > Date.now();
+  };
+
+  const shouldForceWatermark = (item) =>
+    Boolean(item?.isScraped || item?.isScrapedData || item?.dataSource === 'scraped' || item?.sourceUrl);
   
 
   // Load properties when filters change
@@ -93,7 +98,7 @@ const PropertyListings = React.memo(function PropertyListings() {
     return value.toString().replace(/,/g, '');
   };
 
-  const loadProperties = useCallback(async (reset = false) => {
+  const loadProperties = useCallback(async (reset = false, pageOverride = null) => {
     try {
       setIsLoading(true);
       setError(null);
@@ -101,8 +106,9 @@ const PropertyListings = React.memo(function PropertyListings() {
       // Build API parameters with authentication
       // Use higher limit for map view to show more properties
       const isMapView = viewMode === 'map';
+      const targetPage = reset ? 1 : (pageOverride ?? currentPage);
       const params = {
-        page: reset ? 1 : currentPage,
+        page: targetPage,
         limit: isMapView ? 50 : 12, // 50 for map, 12 for list
         search: debouncedSearchQuery,
         minPrice: debouncedFilters.minPrice || undefined,
@@ -152,7 +158,19 @@ const PropertyListings = React.memo(function PropertyListings() {
         setProperties(validProperties);
         setCurrentPage(1);
       } else {
-        setProperties(prev => [...prev, ...validProperties]);
+        setProperties(prev => {
+          const seen = new Set(prev.map((property) => property.id));
+          const merged = [...prev];
+
+          validProperties.forEach((property) => {
+            if (!seen.has(property.id)) {
+              seen.add(property.id);
+              merged.push(property);
+            }
+          });
+
+          return merged;
+        });
       }
 
       setTotalCount(pagination.total); // Set the total count from API
@@ -189,10 +207,11 @@ const PropertyListings = React.memo(function PropertyListings() {
 
   const loadMore = useCallback(() => {
     if (!isLoading && hasMore) {
-      setCurrentPage(prev => prev + 1);
-      loadProperties(false);
+      const nextPage = currentPage + 1;
+      setCurrentPage(nextPage);
+      loadProperties(false, nextPage);
     }
-  }, [isLoading, hasMore, loadProperties]);
+  }, [isLoading, hasMore, currentPage, loadProperties]);
 
   // Auto-apply filters through useEffect, no manual apply needed
 
@@ -232,7 +251,7 @@ const PropertyListings = React.memo(function PropertyListings() {
   return (
     <div className="bg-gray-50 min-h-screen">
       {/* Header with Search and Filters */}
-      <div className="bg-white shadow-sm sticky top-0 z-40">
+      <div className="bg-white shadow-sm sticky top-14 md:top-16 lg:top-20 z-40">
         <div className="max-w-6xl mx-auto px-4 py-4">
           {/* Search and Filter Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
@@ -397,23 +416,65 @@ const PropertyListings = React.memo(function PropertyListings() {
                 {/* Results count and Post button */}
                 <div className="mb-6 flex justify-between items-center">
                   <p className="text-gray-600">
-                    Showing {properties.length} of {(totalCount + getOfflineCount(filters.listingType)).toLocaleString()} properties
+                    Showing {properties.length.toLocaleString()} of {Number(totalCount || 0).toLocaleString()} properties
                     {nearbyEnabled && location && (
                       <span className="ml-2 text-blue-600">
                         within {searchRadius}km of your location
                       </span>
                     )}
                   </p>
-                  <Link
-                    href="/dashboard?tab=post-ad&type=property"
-                    className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 5v14M5 12h14"/>
-                    </svg>
-                    Post Property Listing
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href="/dashboard?tab=my-ads&action=promote&type=property"
+                      className="bg-amber-100 text-amber-800 px-3 py-2 rounded-lg hover:bg-amber-200 transition-colors text-sm inline-flex items-center gap-1"
+                    >
+                      <Star size={14} />
+                      Promote Listing
+                    </Link>
+                    <Link
+                      href="/dashboard?tab=post-ad&type=property"
+                      className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 5v14M5 12h14"/>
+                      </svg>
+                      Post Property Listing
+                    </Link>
+                  </div>
                 </div>
+
+                {properties.some((property) => isPromotedActive(property)) && (
+                  <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <h3 className="text-sm font-semibold text-amber-800 inline-flex items-center gap-2">
+                        <Star size={14} />
+                        Sponsored Properties
+                      </h3>
+                      <Link
+                        href="/dashboard?tab=my-ads&action=promote&type=property"
+                        className="text-xs text-amber-700 hover:text-amber-800 font-medium"
+                      >
+                        Promote Your Listing
+                      </Link>
+                    </div>
+                    <div className="grid md:grid-cols-3 gap-4 [grid-auto-rows:1fr]">
+                      {properties
+                        .filter((property) => isPromotedActive(property))
+                        .slice(0, 3)
+                        .map((property) => (
+                          <Link
+                            key={`sponsored-${property.id}`}
+                            href={`/property/${property.slug}`}
+                            className="bg-white border border-amber-100 rounded-lg p-3 hover:shadow-sm transition-shadow h-full flex flex-col"
+                          >
+                            <p className="text-sm font-semibold text-blue-900 line-clamp-2 min-h-10">{property.title}</p>
+                            <p className="text-xs text-gray-600 line-clamp-1 mt-1">{property.location}</p>
+                            <p className="text-sm font-bold text-blue-800 mt-auto pt-2">{property.displayPrice}</p>
+                          </Link>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 
                 {/* Conditional rendering for List vs Map view */}
                 {viewMode === 'map' ? (
@@ -426,21 +487,25 @@ const PropertyListings = React.memo(function PropertyListings() {
                     />
                   </div>
                 ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 [grid-auto-rows:1fr]">
                   {properties.map((property) => (
                     <Link 
                       href={`/property/${property.slug}`}
                       key={property.id} 
-                      className="group focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-xl"
+                      className="group block h-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-xl"
                       aria-label={`View details for ${property.title}`}
                     >
-                      <div className="bg-white rounded-xl shadow-lg overflow-hidden transform transition-all hover:-translate-y-1 md:hover:-translate-y-2 hover:shadow-xl touch-target">
+                      <div className="bg-white rounded-xl shadow-lg overflow-hidden transform transition-all hover:-translate-y-1 md:hover:-translate-y-2 hover:shadow-xl touch-target h-full min-h-[31rem] flex flex-col">
                         <div className="relative">
                           <img
                             src={property.imageUrls[0]}
                             alt={`Photo of ${property.title}`}
                             className="w-full h-48 sm:h-56 object-cover"
                             loading="lazy"
+                          />
+                          <SourceWatermarkCover
+                            imageUrl={property.imageUrls[0]}
+                            force={shouldForceWatermark(property)}
                           />
                           
                           {/* Display listing type tag */}
@@ -469,8 +534,8 @@ const PropertyListings = React.memo(function PropertyListings() {
                           )}
                         </div>
                         
-                        <div className="p-4 sm:p-6">
-                          <h3 className="text-lg sm:text-xl font-bold text-blue-900 mb-2 group-hover:text-blue-700 transition-colors line-clamp-2 leading-tight">
+                        <div className="p-4 sm:p-6 flex flex-col flex-1">
+                          <h3 className="text-lg sm:text-xl font-bold text-blue-900 mb-2 group-hover:text-blue-700 transition-colors line-clamp-2 min-h-[3.5rem] leading-tight">
                             {property.title}
                           </h3>
                           
@@ -479,7 +544,7 @@ const PropertyListings = React.memo(function PropertyListings() {
                             <span className="line-clamp-1 text-sm sm:text-base">{property.location}</span>
                           </div>
                           
-                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2 mt-auto min-h-[3.5rem]">
                             <div className="text-xl sm:text-2xl font-bold text-blue-900 truncate">
                               {property.displayPrice}
                             </div>

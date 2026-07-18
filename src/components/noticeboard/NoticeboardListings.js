@@ -1,7 +1,8 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { MapPin, Clock, Search as SearchIcon, Filter, X, Loader2, Tag } from 'lucide-react';
+import Image from 'next/image';
+import { MapPin, Clock, Search as SearchIcon, Filter, X, Loader2, Tag, Star } from 'lucide-react';
 import apiService from '@/services/api';
 import { slugify } from '@/utils/slugify';
 import { withProximityFilter } from '@/utils/withProximityFilter';
@@ -41,6 +42,21 @@ function NoticeboardListings(props) {
   });
   const [originalData, setOriginalData] = useState([]);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+
+  const parseDateValue = (value) => {
+    if (!value) return null;
+    if (value?.toDate && typeof value.toDate === 'function') return value.toDate();
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPromotedActive = (item) => {
+    if (!item?.isPromoted) return false;
+    const expiry = parseDateValue(item?.promotionExpiry);
+    if (!expiry) return true;
+    return expiry.getTime() > Date.now();
+  };
   
   // Search input ref for dropdown positioning
   const searchInputRef = useRef(null);
@@ -66,7 +82,19 @@ function NoticeboardListings(props) {
 
   // Initial load
   useEffect(() => {
-    loadNotices(true);
+    const runInitialLoad = async () => {
+      try {
+        await loadNotices(true);
+      } catch (loadError) {
+        console.error('Noticeboard initial load failed:', loadError);
+        setFilteredNotices([]);
+        setOriginalData([]);
+        setHasMoreLocal(false);
+        setError('Failed to load notices. Please try again later.');
+      }
+    };
+
+    runInitialLoad();
   }, []);
 
   const loadNotices = async (reset = false) => {
@@ -150,6 +178,9 @@ function NoticeboardListings(props) {
       setHasMoreLocal(validNotices.length > displayCount);
     } catch (error) {
       console.error('Error loading notices:', error);
+      setFilteredNotices([]);
+      setOriginalData([]);
+      setHasMoreLocal(false);
       setError('Failed to load notices. Please try again later.');
     } finally {
       setIsLocalLoading(false);
@@ -233,26 +264,15 @@ function NoticeboardListings(props) {
 
   return (
     <div className="bg-gray-50 min-h-screen">
-      <div className="bg-white shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="bg-white shadow-sm sticky top-14 md:top-16 lg:top-20 z-40">
+        <div className="max-w-6xl mx-auto px-4 py-4">
           {/* Title */}
-          <h1 className="text-3xl font-bold text-blue-900 mb-6">
+          <h1 className="text-2xl font-bold text-blue-900 mb-4">
             Community Noticeboard
           </h1>
 
-          {/* Mobile Controls */}
-          <div className="flex md:hidden items-center gap-2 mb-4">
-            <button
-              onClick={() => setIsFiltersOpen(!isFiltersOpen)}
-              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-              title="Filters"
-            >
-              <Filter size={20} />
-            </button>
-          </div>
-
           {/* Search bar */}
-          <form onSubmit={handleSearch} className="mb-6 flex gap-2">
+          <form onSubmit={handleSearch} className="mb-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
             <div className="relative flex-grow" ref={searchInputRef}>
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <SearchIcon className="text-gray-400" size={20} />
@@ -263,7 +283,7 @@ function NoticeboardListings(props) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={handleSearchFocus}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base sm:text-sm"
               />
               <SearchDropdown
                 isOpen={isDropdownOpen}
@@ -277,17 +297,35 @@ function NoticeboardListings(props) {
             <button 
               type="submit"
               disabled={isLocalLoading}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300"
+              className="bg-blue-500 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-blue-300 touch-target min-h-[44px] text-base sm:text-sm font-medium"
             >
               {isLocalLoading ? 'Searching...' : 'Search'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFiltersOpen(!isFiltersOpen)}
+              className="flex-shrink-0 bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 touch-target min-h-[44px] min-w-[44px] justify-center"
+              aria-label={isFiltersOpen ? 'Hide filters' : 'Show filters'}
+              aria-expanded={isFiltersOpen}
+            >
+              <Filter size={20} />
+              <span className="hidden sm:inline">Filters</span>
             </button>
           </form>
 
           {/* Filters Section */}
-          <div className={`
-            md:block
-            ${isFiltersOpen ? 'block' : 'hidden'}
-          `}>
+          <div className={isFiltersOpen ? 'block' : 'hidden'}>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900">Filters</h2>
+              <button
+                type="button"
+                onClick={() => setIsFiltersOpen(false)}
+                aria-label="Close filters panel"
+                className="inline-flex items-center justify-center rounded-lg p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
             <div className="grid md:grid-cols-4 gap-4 mb-6">
               <select
                 name="noticeType"
@@ -485,7 +523,14 @@ function NoticeboardListings(props) {
             ) : (
               <>
                 {/* Add Post Notice button */}
-                <div className="mb-6 flex justify-end">
+                <div className="mb-6 flex justify-end gap-2">
+                  <Link
+                    href="/dashboard?tab=my-ads&action=promote&type=noticeboard"
+                    className="bg-amber-100 text-amber-800 px-3 py-2 rounded-lg hover:bg-amber-200 transition-colors text-sm inline-flex items-center gap-1"
+                  >
+                    <Star size={14} />
+                    Promote Listing
+                  </Link>
                   <Link
                     href="/dashboard?tab=post-ad&type=notice"
                     className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
@@ -497,22 +542,55 @@ function NoticeboardListings(props) {
                   </Link>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-6">
+                {(() => {
+                  const baseNotices = (nearbyEnabled ? proximityFilteredData : filteredNotices) || [];
+                  const promotedNotices = baseNotices.filter((notice) => isPromotedActive(notice));
+                  if (promotedNotices.length === 0) return null;
+
+                  return (
+                    <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                      <div className="flex items-center gap-2 mb-3 text-amber-800 text-sm font-semibold">
+                        <Star size={14} />
+                        Sponsored Notices
+                      </div>
+                      <div className="grid md:grid-cols-3 gap-4 [grid-auto-rows:1fr]">
+                        {promotedNotices.slice(0, 3).map((notice) => (
+                          <Link
+                            key={`sponsored-${notice.id}`}
+                            href={`/noticeboard/${notice.slug}`}
+                            className="bg-white rounded-lg border border-amber-100 p-3 hover:shadow-sm transition-shadow h-full flex flex-col"
+                          >
+                            <p className="text-sm font-semibold text-blue-900 line-clamp-2 min-h-10">{notice.title}</p>
+                            <p className="text-xs text-gray-600 line-clamp-1 mt-1">{notice.location || 'Community'}</p>
+                            <p className="text-xs text-blue-800 mt-2 line-clamp-3 min-h-[3.75rem]">{notice.description}</p>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="grid md:grid-cols-3 gap-6 [grid-auto-rows:1fr]">
                   {/* Map over the appropriate data source based on whether proximity is enabled */}
                   {(nearbyEnabled ? proximityFilteredData : filteredNotices).map((notice) => (
                     <Link 
                       key={notice.id}
                       href={`/noticeboard/${notice.slug}`}
-                      className="block group"
+                      className="block group h-full"
                     >
-                      <div className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                      <div className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow h-full min-h-[31rem] flex flex-col">
                         <div className="relative">
-                          <img
-                            src={notice.imageUrls[0]}
-                            alt={notice.title}
-                            className="w-full h-48 object-cover"
-                            loading="lazy"
-                          />
+                          <div className="relative w-full aspect-video">
+                            <Image
+                              src={notice.imageUrls[0]}
+                              alt={notice.title}
+                              fill
+                              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                              className="object-cover"
+                              loading="lazy"
+                              unoptimized
+                            />
+                          </div>
                           {notice.noticeType && (
                             <span className="absolute top-2 right-2 bg-blue-500 text-white px-2 py-1 rounded-full text-sm">
                               {noticeTypes.find(t => t.value === notice.noticeType)?.label || notice.noticeType}
@@ -528,20 +606,20 @@ function NoticeboardListings(props) {
                           )}
                         </div>
                         
-                        <div className="p-4">
-                          <h3 className="text-lg font-semibold text-blue-900 mb-2 line-clamp-2 group-hover:text-blue-600">
+                        <div className="p-4 flex flex-col flex-1">
+                          <h3 className="text-lg font-semibold text-blue-900 mb-2 line-clamp-2 min-h-[3.5rem] group-hover:text-blue-600">
                             {notice.title}
                           </h3>
                           
-                          <p className="text-gray-600 mb-3 line-clamp-2">
+                          <p className="text-gray-600 mb-3 line-clamp-3 min-h-[4.5rem]">
                             {notice.description}
                           </p>
                           
-                          <div className="flex items-center gap-3 text-sm text-gray-600">
+                          <div className="flex items-center gap-3 text-sm text-gray-600 mt-auto">
                             {notice.location && (
                               <div className="flex items-center">
                                 <MapPin size={16} className="mr-1" />
-                                <span className="truncate">{notice.location}</span>
+                                <span className="line-clamp-1">{notice.location}</span>
                               </div>
                             )}
                             <div className="flex items-center">

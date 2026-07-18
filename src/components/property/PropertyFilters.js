@@ -1,6 +1,7 @@
 // components/property/PropertyFilters.js
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import { normalizeText } from '@/lib/search';
 
 const propertyTypes = [
   { value: '', label: 'All Types' },
@@ -51,6 +52,16 @@ export default React.memo(function PropertyFilters({
       return;
     }
 
+    if (name === 'propertyType' || name === 'listingType') {
+      setFilters(prev => ({ ...prev, [name]: normalizeText(value) }));
+      return;
+    }
+
+    if (name === 'location') {
+      setFilters(prev => ({ ...prev, [name]: value.trimStart() }));
+      return;
+    }
+
     setFilters(prev => ({ ...prev, [name]: value }));
   };
 
@@ -77,6 +88,18 @@ export default React.memo(function PropertyFilters({
           role="region"
           aria-label="Property filters"
         >
+          <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-800">Filters</h3>
+            <button
+              type="button"
+              onClick={() => setIsFilterOpen(false)}
+              className="inline-flex items-center justify-center rounded-lg p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Close filters panel"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
           <div className="grid md:grid-cols-3 gap-4">
             {/* Listing Type (Rent vs Sale) - NEW */}
             <div className="space-y-2">
@@ -219,7 +242,7 @@ export default React.memo(function PropertyFilters({
             </div>
 
             {/* Filter Actions */}
-            <div className="md:col-span-3 flex justify-end gap-4 mt-4">
+            <div className="md:col-span-3 flex items-center justify-end gap-4 mt-4">
               <button
                 type="button"
                 onClick={onResetFilters}
