@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
 import {
@@ -10,6 +11,41 @@ import {
   getPublicCommunities
 } from '@/lib/hubFirestore';
 import logger from '@/lib/logger';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+const COMMUNITY_FIELD_LIMITS = {
+  name: 100,
+  description: 500,
+  location: 180
+};
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request) {
   try {
@@ -26,12 +62,12 @@ export async function GET(request) {
     if (type === 'user' || userId) {
       const authResult = await verifyAuth(request);
       if (!authResult.success) {
-        return authResult.error;
+        return authFailureResponse(authResult.error);
       }
       
       // Ensure user can only access their own data
       if (userId && authResult.userId !== userId) {
-        return NextResponse.json({ error: 'Unauthorized access to user data' }, { status: 403 });
+        return errorResponse('Unauthorized access to user data', 'FORBIDDEN', 403);
       }
     }
 
@@ -70,7 +106,7 @@ export async function GET(request) {
     return NextResponse.json({ success: true, communities: [], data: [], pagination: { total: 0 } });
   } catch (error) {
     logger.error('Error in communities API', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
@@ -79,7 +115,7 @@ export async function POST(request) {
     // Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -101,19 +137,38 @@ export async function POST(request) {
         }, { status: 400 });
       }
       
-      // Validate field lengths
-      if (name.length > 100 || description.length > 500) {
-        return NextResponse.json({ 
-          error: 'Field length validation failed',
-          details: 'Name must be <= 100 chars, description <= 500 chars'
-        }, { status: 400 });
+      const trimmedName = String(name).trim();
+      const trimmedDescription = String(description).trim();
+      const trimmedLocation = String(location).trim();
+
+      const lengthChecks = [
+        { field: 'name', value: trimmedName },
+        { field: 'description', value: trimmedDescription },
+        { field: 'location', value: trimmedLocation }
+      ];
+
+      for (const check of lengthChecks) {
+        const maxLength = COMMUNITY_FIELD_LIMITS[check.field];
+        if (check.value.length > maxLength) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: 'VALIDATION_LENGTH_EXCEEDED',
+              error: `Field '${check.field}' exceeds max length of ${maxLength} characters`,
+              field: check.field,
+              maxLength,
+              actualLength: check.value.length
+            },
+            { status: 400 }
+          );
+        }
       }
       
       // Sanitize inputs
       const sanitizedData = {
-        name: name.trim(),
-        description: description.trim(),
-        location: location.trim(),
+        name: trimmedName,
+        description: trimmedDescription,
+        location: trimmedLocation,
         isPublic: !!isPublic
       };
       
@@ -148,9 +203,9 @@ export async function POST(request) {
       return NextResponse.json({ memberId, success: true });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'VALIDATION_ERROR', 400);
   } catch (error) {
     logger.error('Error in communities POST', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }

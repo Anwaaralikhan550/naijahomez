@@ -1,5 +1,7 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+import { getAdminFirestore } from '@/lib/firebase-admin';
 import { 
   createIssue,
   getIssues,
@@ -11,6 +13,34 @@ import {
   sanitizeInput 
 } from '@/lib/api-validation-middleware';
 
+async function isCommunityAdmin(userId, communityId) {
+  if (!userId || !communityId) return false;
+
+  const db = getAdminFirestore();
+  const membersSnapshot = await db.collection('hubMembers')
+    .where('userId', '==', userId)
+    .where('communityId', '==', communityId)
+    .where('role', '==', 'admin')
+    .limit(5)
+    .get();
+
+  if (membersSnapshot.empty) return false;
+
+  return membersSnapshot.docs.some((doc) => {
+    const data = doc.data() || {};
+    return data.isActive === true || data.status === 'active' || (data.isActive == null && data.status == null);
+  });
+}
+
+async function canManageCommunityIssues(request, userId, communityId) {
+  const globalAdminResult = await isAdmin(request);
+  if (globalAdminResult.success) {
+    return true;
+  }
+
+  return isCommunityAdmin(userId, communityId);
+}
+
 async function handleGET(request) {
   try {
     // SECURITY: Verify authentication
@@ -21,16 +51,13 @@ async function handleGET(request) {
 
     const { searchParams } = new URL(request.url);
     const communityId = searchParams.get('communityId');
-    const userId = searchParams.get('userId');
-    const adminView = searchParams.get('admin') === 'true';
 
     if (!communityId) {
       return createErrorResponse('Community ID is required', 400);
     }
 
-    // If admin view, get all issues for community
-    // If user view, get only user's issues
-    const issues = await getIssues(communityId, adminView ? null : userId);
+    const canManageIssues = await canManageCommunityIssues(request, authResult.userId, communityId);
+    const issues = await getIssues(communityId, authResult.userId, canManageIssues);
     
     return createSuccessResponse({ issues });
   } catch (error) {
@@ -80,8 +107,14 @@ async function handlePOST(request) {
         console.log('Issues API - Validation failed. Missing required fields.');
         return createErrorResponse('Community ID, title, and description are required', 400);
       }
+
+      const issuePayload = {
+        ...sanitizedData,
+        userId,
+        reportedBy: userId
+      };
       
-      const issueId = await createIssue(sanitizedData);
+      const issueId = await createIssue(issuePayload);
       
       return createSuccessResponse({ 
         issueId 
@@ -93,6 +126,19 @@ async function handlePOST(request) {
       
       if (!issueId || !status) {
         return createErrorResponse('Issue ID and status are required', 400);
+      }
+
+      const db = getAdminFirestore();
+      const issueRef = db.collection('hubIssues').doc(issueId);
+      const issueSnapshot = await issueRef.get();
+      if (!issueSnapshot.exists) {
+        return createErrorResponse('Issue not found', 404);
+      }
+
+      const issueData = issueSnapshot.data() || {};
+      const canManage = await canManageCommunityIssues(request, userId, issueData.communityId);
+      if (!canManage) {
+        return createErrorResponse('Admin access required to update issue status', 403);
       }
       
       await updateDocument('hubIssues', issueId, { 

@@ -1,14 +1,44 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request) {
   try {
     // SECURITY: Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const authenticatedUserId = authResult.userId;
@@ -20,20 +50,14 @@ export async function GET(request) {
     const status = searchParams.get('status') || 'all';
 
     if (!communityId && !requestedUserId) {
-      return NextResponse.json(
-        { error: 'Either communityId or userId is required' },
-        { status: 400 }
-      );
+      return errorResponse('Either communityId or userId is required', 'VALIDATION_ERROR', 400);
     }
 
     let query;
     if (requestedUserId) {
       // SECURITY: Users can only view their own requests
       if (requestedUserId !== authenticatedUserId) {
-        return NextResponse.json(
-          { error: 'You can only view your own join requests' },
-          { status: 403 }
-        );
+        return errorResponse('You can only view your own join requests', 'FORBIDDEN', 403);
       }
       query = db
         .collection('joinRequests')
@@ -49,10 +73,7 @@ export async function GET(request) {
         .get();
 
       if (memberQuery.empty) {
-        return NextResponse.json(
-          { error: 'Only admins can view community join requests' },
-          { status: 403 }
-        );
+        return errorResponse('Only admins can view community join requests', 'FORBIDDEN', 403);
       }
 
       query = db
@@ -87,7 +108,7 @@ export async function GET(request) {
     return NextResponse.json({ requests });
   } catch (error) {
     logger.error('Error in join requests API', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
@@ -99,21 +120,18 @@ export async function POST(request) {
     // Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
-    const userId = authResult.userId;
+    const authenticatedUserId = authResult.userId;
     const body = await request.json();
     const { action, ...data } = body;
 
     if (action === 'approve' || action === 'reject') {
-      const { requestId, adminId, adminNotes } = data;
+      const { requestId, adminNotes } = data;
 
       if (!requestId) {
-        return NextResponse.json(
-          { error: 'Request ID is required' },
-          { status: 400 }
-        );
+        return errorResponse('Request ID is required', 'VALIDATION_ERROR', 400);
       }
 
       await db
@@ -121,7 +139,7 @@ export async function POST(request) {
         .doc(requestId)
         .update({
           status: action === 'approve' ? 'approved' : 'rejected',
-          reviewedBy: adminId,
+          reviewedBy: authenticatedUserId,
           reviewedAt: new Date(),
           adminNotes: adminNotes || '',
         });
@@ -135,7 +153,7 @@ export async function POST(request) {
           role: 'member',
           unitNumber: data.unitNumber,
           phoneNumber: data.phoneNumber,
-          approvedBy: adminId,
+          approvedBy: authenticatedUserId,
           approvedAt: new Date(),
         });
       }
@@ -162,6 +180,10 @@ export async function POST(request) {
         },
         { status: 400 }
       );
+    }
+
+    if (requestUserId !== authenticatedUserId) {
+      return errorResponse('You can only create requests for your own account', 'FORBIDDEN', 403);
     }
 
     // Check if user already has a pending request for this community
@@ -199,6 +221,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error('Error in join requests POST:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }

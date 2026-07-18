@@ -1,13 +1,43 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request) {
   try {
     // SECURITY: Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     // Initialize admin SDK
@@ -18,7 +48,7 @@ export async function GET(request) {
     const communityId = searchParams.get('communityId');
 
     if (!userId || !communityId) {
-      return NextResponse.json({ error: 'User ID and Community ID are required' }, { status: 400 });
+      return errorResponse('User ID and Community ID are required', 'VALIDATION_ERROR', 400);
     }
 
     // Query without orderBy to avoid composite index requirement
@@ -41,9 +71,12 @@ export async function GET(request) {
 
       // Get the other participant info
       const otherParticipantId = conversationData.participantIds.find(id => id !== userId);
-      const otherParticipantName = conversationData.participantNames.find((name, index) =>
+      const participantNames = Array.isArray(conversationData.participantNames)
+        ? conversationData.participantNames
+        : [];
+      const otherParticipantName = participantNames.find((name, index) =>
         conversationData.participantIds[index] !== userId
-      );
+      ) || 'Member';
 
       conversationData.otherParticipant = {
         id: otherParticipantId,
@@ -72,7 +105,7 @@ export async function GET(request) {
     return NextResponse.json({ conversations });
   } catch (error) {
     console.error('Error in conversations GET:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
@@ -84,7 +117,7 @@ export async function POST(request) {
     // Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -95,18 +128,42 @@ export async function POST(request) {
       const {
         communityId,
         participantIds,
-        participantNames,
-        createdBy
+        participantNames
       } = data;
 
-      if (!communityId || !participantIds || participantIds.length !== 2 || !participantNames) {
-        return NextResponse.json({ error: 'Invalid conversation data' }, { status: 400 });
+      const normalizedParticipantIds = Array.isArray(participantIds)
+        ? participantIds
+            .map((id) => (typeof id === 'string' ? id.trim() : ''))
+            .filter(Boolean)
+        : [];
+
+      const uniqueParticipantIds = [...new Set(normalizedParticipantIds)];
+      if (!communityId || uniqueParticipantIds.length !== 2 || !uniqueParticipantIds.includes(userId)) {
+        return errorResponse('Invalid conversation data', 'VALIDATION_ERROR', 400);
       }
+
+      const participantNameMap = new Map();
+      if (Array.isArray(participantNames)) {
+        uniqueParticipantIds.forEach((id, index) => {
+          const value = participantNames[index];
+          if (typeof value === 'string' && value.trim()) {
+            participantNameMap.set(id, value.trim());
+          }
+        });
+      }
+
+      const sortedParticipantIds = [...uniqueParticipantIds].sort();
+      const sortedParticipantNames = sortedParticipantIds.map((id) => {
+        if (participantNameMap.has(id)) {
+          return participantNameMap.get(id);
+        }
+        return id === userId ? 'You' : 'Member';
+      });
 
       // Check if conversation already exists between these participants
       const existingSnapshot = await db.collection('privateConversations')
         .where('communityId', '==', communityId)
-        .where('participantIds', '==', participantIds.sort())
+        .where('participantIds', '==', sortedParticipantIds)
         .get();
       
       if (!existingSnapshot.empty) {
@@ -121,9 +178,9 @@ export async function POST(request) {
       // Create new conversation
       const conversationData = {
         communityId,
-        participantIds: participantIds.sort(),
-        participantNames,
-        createdBy,
+        participantIds: sortedParticipantIds,
+        participantNames: sortedParticipantNames,
+        createdBy: userId,
         lastMessage: null,
         isActive: true,
         createdAt: new Date(),
@@ -141,7 +198,7 @@ export async function POST(request) {
       const { conversationId, ...updateData } = data;
       
       if (!conversationId) {
-        return NextResponse.json({ error: 'Conversation ID is required' }, { status: 400 });
+        return errorResponse('Conversation ID is required', 'VALIDATION_ERROR', 400);
       }
 
       await db.collection('privateConversations').doc(conversationId).update({
@@ -156,13 +213,13 @@ export async function POST(request) {
       const { conversationId, userId } = data;
       
       if (!conversationId || !userId) {
-        return NextResponse.json({ error: 'Conversation ID and user ID are required' }, { status: 400 });
+        return errorResponse('Conversation ID and user ID are required', 'VALIDATION_ERROR', 400);
       }
 
       const conversationSnap = await db.collection('privateConversations').doc(conversationId).get();
       
       if (!conversationSnap.exists()) {
-        return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+        return errorResponse('Conversation not found', 'NOT_FOUND', 404);
       }
 
       const conversationData = conversationSnap.data();
@@ -183,13 +240,13 @@ export async function POST(request) {
       const { conversationId, userId } = data;
       
       if (!conversationId || !userId) {
-        return NextResponse.json({ error: 'Conversation ID and user ID are required' }, { status: 400 });
+        return errorResponse('Conversation ID and user ID are required', 'VALIDATION_ERROR', 400);
       }
 
       const conversationSnap = await db.collection('privateConversations').doc(conversationId).get();
       
       if (!conversationSnap.exists()) {
-        return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+        return errorResponse('Conversation not found', 'NOT_FOUND', 404);
       }
 
       const conversationData = conversationSnap.data();
@@ -213,9 +270,9 @@ export async function POST(request) {
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'VALIDATION_ERROR', 400);
   } catch (error) {
     console.error('Error in conversations POST:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }

@@ -1,27 +1,24 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { verifyAuth } from '@/lib/auth-middleware';
 import { withValidation } from '@/lib/api-validation-middleware';
 import logger from '@/lib/logger';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
 
 async function handleAuthPost(request) {
   try {
     // Initialize admin SDK
     const db = getAdminFirestore();
-
-    // Verify authentication
-    const authResult = await verifyAuth(request);
-    if (!authResult.success) {
-      return authResult.error;
-    }
-
-    const userId = authResult.userId;
     const body = request.parsedBody || await request.json();
     const { action, accessCode } = body;
 
     if (action === 'validate_access_code') {
       if (!accessCode) {
-        return NextResponse.json({ error: 'Access code is required' }, { status: 400 });
+        return errorResponse('Access code is required', 'ACCESS_CODE_REQUIRED', 400);
       }
 
       // Check if the access code exists and is valid
@@ -31,10 +28,7 @@ async function handleAuthPost(request) {
         .get();
       
       if (querySnapshot.empty) {
-        return NextResponse.json({ 
-          valid: false, 
-          error: 'Invalid or expired access code' 
-        }, { status: 400 });
+        return errorResponse('Invalid or expired access code', 'ACCESS_CODE_INVALID', 400);
       }
 
       const accessCodeDoc = querySnapshot.docs[0];
@@ -42,18 +36,12 @@ async function handleAuthPost(request) {
 
       // Check if code has expiration date and if it's expired
       if (accessCodeData.expiresAt && accessCodeData.expiresAt.toDate() < new Date()) {
-        return NextResponse.json({ 
-          valid: false, 
-          error: 'Access code has expired' 
-        }, { status: 400 });
+        return errorResponse('Access code has expired', 'ACCESS_CODE_EXPIRED', 400);
       }
 
       // Check usage limits
       if (accessCodeData.maxUses && accessCodeData.usedCount >= accessCodeData.maxUses) {
-        return NextResponse.json({ 
-          valid: false, 
-          error: 'Access code usage limit reached' 
-        }, { status: 400 });
+        return errorResponse('Access code usage limit reached', 'ACCESS_CODE_LIMIT_REACHED', 400);
       }
 
       return NextResponse.json({ 
@@ -65,24 +53,33 @@ async function handleAuthPost(request) {
     }
 
     if (action === 'use_access_code') {
-      if (!userId || !body.codeId) {
-        return NextResponse.json({ error: 'User ID and code ID are required' }, { status: 400 });
+      if (!body.codeId) {
+        return errorResponse('Code ID is required', 'ACCESS_CODE_USAGE_FIELDS_REQUIRED', 400);
+      }
+
+      // Authenticated user preferred, fallback to explicit access-code identity for guest flow.
+      let actorUserId = null;
+      const authResult = await verifyAuth(request);
+      if (authResult.success) {
+        actorUserId = authResult.userId;
+      } else if (typeof body.userId === 'string' && body.userId.trim()) {
+        actorUserId = body.userId.trim();
       }
 
       // Update access code usage
       await db.collection('hubAccessCodes').doc(body.codeId).update({
-        usedCount: (body.currentUsedCount || 0) + 1,
+        usedCount: FieldValue.increment(1),
         lastUsedAt: new Date(),
-        lastUsedBy: userId
+        lastUsedBy: actorUserId
       });
 
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'INVALID_ACTION', 400);
   } catch (error) {
     logger.error('Error in auth API', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message || 'Authentication operation failed', 'AUTH_OPERATION_FAILED', 500);
   }
 }
 

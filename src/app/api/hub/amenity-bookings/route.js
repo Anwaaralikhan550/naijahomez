@@ -1,13 +1,43 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request) {
   try {
     // SECURITY: Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     // Initialize admin SDK
@@ -20,7 +50,7 @@ export async function GET(request) {
     const amenityId = searchParams.get('amenityId');
 
     if (!communityId) {
-      return NextResponse.json({ error: 'Community ID is required' }, { status: 400 });
+      return errorResponse('Community ID is required', 'VALIDATION_ERROR', 400);
     }
 
     let query;
@@ -41,7 +71,7 @@ export async function GET(request) {
         .where('amenityId', '==', amenityId)
         .orderBy('bookingDate', 'asc');
     } else {
-      return NextResponse.json({ error: 'Admin flag, User ID, or Amenity ID required' }, { status: 400 });
+      return errorResponse('Admin flag, User ID, or Amenity ID required', 'VALIDATION_ERROR', 400);
     }
 
     const querySnapshot = await query.get();
@@ -53,7 +83,7 @@ export async function GET(request) {
     return NextResponse.json({ bookings });
   } catch (error) {
     console.error('Error in amenity-bookings GET:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
@@ -65,7 +95,7 @@ export async function POST(request) {
     // Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -76,12 +106,12 @@ export async function POST(request) {
       const { bookingId, status, adminId } = data;
       
       if (!bookingId || !status || !adminId) {
-        return NextResponse.json({ error: 'Booking ID, status, and admin ID are required' }, { status: 400 });
+        return errorResponse('Booking ID, status, and admin ID are required', 'VALIDATION_ERROR', 400);
       }
 
       const validStatuses = ['pending', 'approved', 'rejected', 'cancelled'];
       if (!validStatuses.includes(status)) {
-        return NextResponse.json({ error: 'Invalid booking status' }, { status: 400 });
+        return errorResponse('Invalid booking status', 'VALIDATION_ERROR', 400);
       }
 
       const updateData = {
@@ -102,9 +132,9 @@ export async function POST(request) {
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'VALIDATION_ERROR', 400);
   } catch (error) {
     console.error('Error in amenity-bookings POST:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }

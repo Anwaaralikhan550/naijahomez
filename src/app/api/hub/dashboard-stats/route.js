@@ -1,6 +1,36 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request) {
   try {
@@ -13,7 +43,7 @@ export async function GET(request) {
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
       console.error('Unauthorized dashboard stats attempt blocked');
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     // For now, allow authenticated users to access their community dashboard
@@ -25,69 +55,85 @@ export async function GET(request) {
     const communityId = searchParams.get('communityId');
 
     if (!communityId) {
-      return NextResponse.json({ error: 'Community ID is required' }, { status: 400 });
+      return errorResponse('Community ID is required', 'VALIDATION_ERROR', 400);
     }
 
-    // Get all stats in parallel
+    // Run all count aggregations and recent activity in parallel
     const [
-      membersSnapshot,
-      issuesSnapshot,
-      visitorsSnapshot,
-      marketplaceSnapshot,
-      notificationsSnapshot,
-      amenitiesSnapshot,
-      alertsSnapshot
+      membersCountSnapshot,
+      issuesCountSnapshot,
+      visitorsCountSnapshot,
+      marketplaceCountSnapshot,
+      notificationsCountSnapshot,
+      amenitiesCountSnapshot,
+      alertsCountSnapshot,
+      joinRequestsCountSnapshot,
+      recentActivitySnapshot
     ] = await Promise.all([
       // Total active members
       db.collection('hubMembers')
         .where('communityId', '==', communityId)
         .where('isActive', '==', true)
+        .count()
         .get(),
-      
+
       // Active issues (open and in-progress)
       db.collection('hubIssues')
         .where('communityId', '==', communityId)
         .where('status', 'in', ['open', 'in-progress'])
+        .count()
         .get(),
-      
+
       // Today's visitors
       db.collection('visitorCodes')
         .where('communityId', '==', communityId)
         .where('visitDate', '>=', getTodayStart())
         .where('visitDate', '<=', getTodayEnd())
+        .count()
         .get(),
-      
+
       // Active marketplace items
-      db.collection('hubMarketplace')
+      db.collection('marketplace')
         .where('communityId', '==', communityId)
-        .where('isActive', '==', true)
+        .where('status', '==', 'active')
+        .count()
         .get(),
-      
+
       // Notifications sent this month
       db.collection('hubNotifications')
         .where('communityId', '==', communityId)
         .where('createdAt', '>=', getMonthStart())
+        .count()
         .get(),
-      
+
       // Active amenities
       db.collection('hubAmenities')
         .where('communityId', '==', communityId)
         .where('isActive', '==', true)
+        .count()
         .get(),
-      
+
       // Active emergency alerts
-      db.collection('emergencyAlerts')
+      db.collection('hubEmergencyAlerts')
         .where('communityId', '==', communityId)
         .where('isActive', '==', true)
+        .count()
+        .get(),
+
+      // Pending join requests
+      db.collection('joinRequests')
+        .where('communityId', '==', communityId)
+        .where('status', '==', 'pending')
+        .count()
+        .get(),
+
+      // Recent activity details still require document reads
+      db.collection('hubIssues')
+        .where('communityId', '==', communityId)
+        .orderBy('createdAt', 'desc')
+        .limit(5)
         .get()
     ]);
-
-    // Get recent activity
-    const recentActivitySnapshot = await db.collection('hubIssues')
-      .where('communityId', '==', communityId)
-      .orderBy('createdAt', 'desc')
-      .limit(5)
-      .get();
 
     const recentActivity = [];
     recentActivitySnapshot.forEach((doc) => {
@@ -102,28 +148,22 @@ export async function GET(request) {
       });
     });
 
-    // Calculate join requests pending approval
-    const joinRequestsSnapshot = await db.collection('joinRequests')
-      .where('communityId', '==', communityId)
-      .where('status', '==', 'pending')
-      .get();
-
     const stats = {
-      totalMembers: membersSnapshot.size,
-      activeIssues: issuesSnapshot.size,
-      pendingVisitors: visitorsSnapshot.size,
-      marketplaceItems: marketplaceSnapshot.size,
-      notificationsThisMonth: notificationsSnapshot.size,
-      activeAmenities: amenitiesSnapshot.size,
-      activeAlerts: alertsSnapshot.size,
-      pendingJoinRequests: joinRequestsSnapshot.size,
+      totalMembers: membersCountSnapshot.data().count,
+      activeIssues: issuesCountSnapshot.data().count,
+      pendingVisitors: visitorsCountSnapshot.data().count,
+      marketplaceItems: marketplaceCountSnapshot.data().count,
+      notificationsThisMonth: notificationsCountSnapshot.data().count,
+      activeAmenities: amenitiesCountSnapshot.data().count,
+      activeAlerts: alertsCountSnapshot.data().count,
+      pendingJoinRequests: joinRequestsCountSnapshot.data().count,
       recentActivity
     };
 
     return NextResponse.json({ stats });
   } catch (error) {
     console.error('Error in dashboard-stats API:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 

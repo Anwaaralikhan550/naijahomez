@@ -1,6 +1,7 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
-import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+import { verifyAuth } from '@/lib/auth-middleware';
 import { 
   withApiSecurity, 
   createErrorResponse, 
@@ -8,8 +9,29 @@ import {
   sanitizeInput 
 } from '@/lib/api-validation-middleware';
 
+async function getConversationForParticipant(db, conversationId, userId) {
+  const conversationDoc = await db.collection('privateConversations').doc(conversationId).get();
+  if (!conversationDoc.exists) {
+    return { error: createErrorResponse('Conversation not found', 404) };
+  }
+
+  const conversationData = conversationDoc.data() || {};
+  const participantIds = Array.isArray(conversationData.participantIds) ? conversationData.participantIds : [];
+  if (!participantIds.includes(userId)) {
+    return { error: createErrorResponse('Access denied for this conversation', 403) };
+  }
+
+  return { data: conversationData };
+}
+
 async function handleGET(request) {
   try {
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
+    const authenticatedUserId = authResult.userId;
     // Initialize admin SDK
     const db = getAdminFirestore();
 
@@ -19,6 +41,11 @@ async function handleGET(request) {
 
     if (!conversationId) {
       return createErrorResponse('Conversation ID is required', 400);
+    }
+
+    const conversationResult = await getConversationForParticipant(db, conversationId, authenticatedUserId);
+    if (conversationResult.error) {
+      return conversationResult.error;
     }
 
     const querySnapshot = await db.collection('privateMessages')
@@ -64,19 +91,23 @@ async function handlePOST(request) {
       const {
         conversationId,
         content,
-        senderId,
         senderName,
         messageType = 'text'
       } = sanitizedData;
 
-      if (!conversationId || !content || !senderId) {
+      if (!conversationId || !content) {
         return createErrorResponse('Required fields missing', 400);
+      }
+
+      const conversationResult = await getConversationForParticipant(db, conversationId, userId);
+      if (conversationResult.error) {
+        return conversationResult.error;
       }
 
       const messageData = {
         conversationId,
         content: content.trim(),
-        senderId,
+        senderId: userId,
         senderName,
         messageType,
         isRead: false,
@@ -92,7 +123,7 @@ async function handlePOST(request) {
       await db.collection('privateConversations').doc(conversationId).update({
         lastMessage: {
           content: content.trim(),
-          senderId,
+          senderId: userId,
           senderName,
           createdAt: new Date()
         },
@@ -103,10 +134,15 @@ async function handlePOST(request) {
     }
 
     if (action === 'mark_as_read') {
-      const { conversationId, userId } = sanitizedData;
+      const { conversationId } = sanitizedData;
       
-      if (!conversationId || !userId) {
-        return createErrorResponse('Conversation ID and user ID are required', 400);
+      if (!conversationId) {
+        return createErrorResponse('Conversation ID is required', 400);
+      }
+
+      const conversationResult = await getConversationForParticipant(db, conversationId, userId);
+      if (conversationResult.error) {
+        return conversationResult.error;
       }
 
       // Mark all unread messages in conversation as read for this user
@@ -137,7 +173,18 @@ async function handlePOST(request) {
         return createErrorResponse('Message ID and content are required', 400);
       }
 
-      await db.collection('privateMessages').doc(messageId).update({
+      const messageRef = db.collection('privateMessages').doc(messageId);
+      const messageDoc = await messageRef.get();
+      if (!messageDoc.exists) {
+        return createErrorResponse('Message not found', 404);
+      }
+
+      const messageData = messageDoc.data() || {};
+      if (messageData.senderId !== userId) {
+        return createErrorResponse('Only the sender can edit this message', 403);
+      }
+
+      await messageRef.update({
         content: content.trim(),
         isEdited: true,
         updatedAt: new Date()
@@ -153,7 +200,18 @@ async function handlePOST(request) {
         return createErrorResponse('Message ID is required', 400);
       }
 
-      await db.collection('privateMessages').doc(messageId).update({
+      const messageRef = db.collection('privateMessages').doc(messageId);
+      const messageDoc = await messageRef.get();
+      if (!messageDoc.exists) {
+        return createErrorResponse('Message not found', 404);
+      }
+
+      const messageData = messageDoc.data() || {};
+      if (messageData.senderId !== userId) {
+        return createErrorResponse('Only the sender can delete this message', 403);
+      }
+
+      await messageRef.update({
         isDeleted: true,
         content: '',
         updatedAt: new Date()

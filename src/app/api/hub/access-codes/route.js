@@ -1,14 +1,26 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const message = payload?.error || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
 
 export async function GET(request) {
   try {
     // SECURITY: Verify admin authentication - MANDATORY
     const adminResult = await isAdmin(request);
     if (!adminResult.success) {
-      return adminResult.error;
+      return authErrorResponse(adminResult.error);
     }
 
     const db = getAdminFirestore();
@@ -17,7 +29,7 @@ export async function GET(request) {
     const communityId = searchParams.get('communityId');
 
     if (!communityId) {
-      return NextResponse.json({ error: 'Community ID is required' }, { status: 400 });
+      return errorResponse('Community ID is required', 'COMMUNITY_ID_REQUIRED', 400);
     }
 
     // Admin view - get all access codes for the community
@@ -38,7 +50,7 @@ export async function GET(request) {
     return NextResponse.json({ accessCodes });
   } catch (error) {
     logger.error('Error in access-codes GET', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message || 'Failed to fetch access codes', 'ACCESS_CODES_FETCH_FAILED', 500);
   }
 }
 
@@ -47,7 +59,7 @@ export async function POST(request) {
     // SECURITY: Verify admin authentication - MANDATORY
     const adminResult = await isAdmin(request);
     if (!adminResult.success) {
-      return adminResult.error;
+      return authErrorResponse(adminResult.error);
     }
 
     const db = getAdminFirestore();
@@ -69,7 +81,7 @@ export async function POST(request) {
       } = data;
 
       if (!communityId || !code || !description || !createdBy) {
-        return NextResponse.json({ error: 'Required fields missing' }, { status: 400 });
+        return errorResponse('Required fields missing', 'ACCESS_CODE_FIELDS_REQUIRED', 400);
       }
 
       // Check if code already exists
@@ -78,7 +90,7 @@ export async function POST(request) {
         .get();
       
       if (!existingCodes.empty) {
-        return NextResponse.json({ error: 'Access code already exists' }, { status: 400 });
+        return errorResponse('Access code already exists', 'ACCESS_CODE_ALREADY_EXISTS', 400);
       }
 
       const accessCodeData = {
@@ -104,7 +116,7 @@ export async function POST(request) {
       const { codeId, isActive } = data;
       
       if (!codeId || isActive === undefined) {
-        return NextResponse.json({ error: 'Code ID and status are required' }, { status: 400 });
+        return errorResponse('Code ID and status are required', 'ACCESS_CODE_UPDATE_FIELDS_REQUIRED', 400);
       }
 
       await db.collection('hubAccessCodes').doc(codeId).update({
@@ -119,7 +131,7 @@ export async function POST(request) {
       const { codeId } = data;
       
       if (!codeId) {
-        return NextResponse.json({ error: 'Code ID is required' }, { status: 400 });
+        return errorResponse('Code ID is required', 'ACCESS_CODE_ID_REQUIRED', 400);
       }
 
       // Soft delete by marking as inactive and deleted
@@ -132,9 +144,9 @@ export async function POST(request) {
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'INVALID_ACTION', 400);
   } catch (error) {
     console.error('Error in access-codes POST:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message || 'Failed to update access codes', 'ACCESS_CODES_UPDATE_FAILED', 500);
   }
 }

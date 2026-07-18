@@ -1,12 +1,58 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initAdmin } from '@/lib/firebase-admin';
+import { getAdminFirestore, initAdmin } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
 
 // Initialize admin SDK
 initAdmin();
 
-const db = getFirestore();
+const db = getAdminFirestore();
+
+async function hasCommunityAdminOrModeratorAccess(userId, communityId) {
+  const primaryMembership = await db.collection('hubMembers')
+    .where('userId', '==', userId)
+    .where('communityId', '==', communityId)
+    .where('isActive', '==', true)
+    .where('role', 'in', ['admin', 'moderator'])
+    .limit(1)
+    .get();
+
+  if (!primaryMembership.empty) {
+    return true;
+  }
+
+  const fallbackMembership = await db.collection('hubMembers')
+    .where('userId', '==', userId)
+    .where('communityId', '==', communityId)
+    .where('status', '==', 'active')
+    .where('role', 'in', ['admin', 'moderator'])
+    .limit(1)
+    .get();
+
+  return !fallbackMembership.empty;
+}
+
+async function hasCommunityActiveMemberAccess(userId, communityId) {
+  const primaryMembership = await db.collection('hubMembers')
+    .where('userId', '==', userId)
+    .where('communityId', '==', communityId)
+    .where('isActive', '==', true)
+    .limit(1)
+    .get();
+
+  if (!primaryMembership.empty) {
+    return true;
+  }
+
+  const fallbackMembership = await db.collection('hubMembers')
+    .where('userId', '==', userId)
+    .where('communityId', '==', communityId)
+    .where('status', '==', 'active')
+    .limit(1)
+    .get();
+
+  return !fallbackMembership.empty;
+}
 
 // GET - Fetch emergency alerts for a community
 export async function GET(request) {
@@ -71,6 +117,12 @@ export async function GET(request) {
 // POST - Create new emergency alert
 export async function POST(request) {
   try {
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
+    const requestingUserId = authResult.userId;
     const data = await request.json();
     const {
       communityId,
@@ -79,19 +131,36 @@ export async function POST(request) {
       message,
       alertType, // weather, flood, power, general
       priority, // low, medium, high, critical
-      createdBy,
-      createdById,
       expiresAt,
       isActive = true,
       metadata = {}
     } = data;
 
     // Validate required fields
-    if (!communityId || !title || !message || !createdBy || !createdById) {
+    if (!communityId || !title || !message) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
+    }
+
+    const isIncidentReport = alertType === 'incident' || type === 'incident_report';
+    if (isIncidentReport) {
+      const isActiveMember = await hasCommunityActiveMemberAccess(requestingUserId, communityId);
+      if (!isActiveMember) {
+        return NextResponse.json(
+          { error: 'Active community membership required' },
+          { status: 403 }
+        );
+      }
+    } else {
+      const canManageAlerts = await hasCommunityAdminOrModeratorAccess(requestingUserId, communityId);
+      if (!canManageAlerts) {
+        return NextResponse.json(
+          { error: 'Admin or moderator access required' },
+          { status: 403 }
+        );
+      }
     }
 
     // Validate priority
@@ -110,8 +179,8 @@ export async function POST(request) {
       message,
       alertType: alertType || 'general',
       priority: priority || 'medium',
-      createdBy,
-      createdById,
+      createdBy: authResult.user?.name || 'Community Admin',
+      createdById: requestingUserId,
       isActive,
       metadata,
       createdAt: new Date(),
@@ -135,7 +204,7 @@ export async function POST(request) {
         title: `⚠️ ${title}`,
         message: message,
         priority: priority || 'medium',
-        createdBy,
+        createdBy: authResult.user?.name || 'Community Admin',
         metadata: {
           alertId: docRef.id,
           alertType: alertType
@@ -166,11 +235,16 @@ export async function POST(request) {
 // PUT - Update emergency alert (deactivate, modify, etc.)
 export async function PUT(request) {
   try {
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
+    const requestingUserId = authResult.userId;
     const data = await request.json();
     const {
       alertId,
       action, // 'deactivate', 'activate', 'update'
-      userId,
       isActive,
       title,
       message,
@@ -193,6 +267,15 @@ export async function PUT(request) {
       return NextResponse.json(
         { error: 'Alert not found' },
         { status: 404 }
+      );
+    }
+
+    const alertData = alertDoc.data();
+    const canManageAlerts = await hasCommunityAdminOrModeratorAccess(requestingUserId, alertData.communityId);
+    if (!canManageAlerts) {
+      return NextResponse.json(
+        { error: 'Admin or moderator access required' },
+        { status: 403 }
       );
     }
 
@@ -249,13 +332,18 @@ export async function PUT(request) {
 // DELETE - Delete emergency alert (admin only)
 export async function DELETE(request) {
   try {
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
+    const requestingUserId = authResult.userId;
     const { searchParams } = new URL(request.url);
     const alertId = searchParams.get('alertId');
-    const userId = searchParams.get('userId');
     
-    if (!alertId || !userId) {
+    if (!alertId) {
       return NextResponse.json(
-        { error: 'Alert ID and User ID are required' },
+        { error: 'Alert ID is required' },
         { status: 400 }
       );
     }
@@ -271,11 +359,11 @@ export async function DELETE(request) {
     }
 
     const alertData = alertDoc.data();
-    
-    // Only allow deletion by the creator
-    if (alertData.createdById !== userId) {
+
+    const canManageAlerts = await hasCommunityAdminOrModeratorAccess(requestingUserId, alertData.communityId);
+    if (!canManageAlerts) {
       return NextResponse.json(
-        { error: 'Only the alert creator can delete this alert' },
+        { error: 'Admin or moderator access required' },
         { status: 403 }
       );
     }

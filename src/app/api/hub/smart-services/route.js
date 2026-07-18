@@ -1,24 +1,69 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initAdmin } from '@/lib/firebase-admin';
+import { getAdminFirestore, initAdmin } from '@/lib/firebase-admin';
+import { verifyAuth } from '@/lib/auth-middleware';
+import { isUserActiveCommunityMember } from '@/lib/hubFirestore';
 
 // Initialize admin SDK
 initAdmin();
 
-const db = getFirestore();
+const db = getAdminFirestore();
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+async function ensureMembership(userId, communityId) {
+  const isMember = await isUserActiveCommunityMember(userId, communityId);
+  if (!isMember) {
+    return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
+  }
+  return null;
+}
 
 // GET - Fetch smart services for a community
 export async function GET(request) {
   try {
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authFailureResponse(authResult.error);
+    }
+
+    const authenticatedUserId = authResult.userId;
     const { searchParams } = new URL(request.url);
     const communityId = searchParams.get('communityId');
     const serviceType = searchParams.get('type'); // generator, water, security, internet
     
     if (!communityId) {
-      return NextResponse.json(
-        { error: 'Community ID is required' },
-        { status: 400 }
-      );
+      return errorResponse('Community ID is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const membershipError = await ensureMembership(authenticatedUserId, communityId);
+    if (membershipError) {
+      return membershipError;
     }
 
     let snapshot;
@@ -69,13 +114,18 @@ export async function GET(request) {
 // POST - Create new smart service request
 export async function POST(request) {
   try {
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authFailureResponse(authResult.error);
+    }
+
+    const authenticatedUserId = authResult.userId;
     const data = await request.json();
     const {
       communityId,
       type, // 'generator', 'water', 'security', 'internet'
       title,
       description,
-      requesterUserId,
       requesterName,
       requesterContact,
       scheduledAt,
@@ -86,20 +136,19 @@ export async function POST(request) {
     } = data;
 
     // Validate required fields
-    if (!communityId || !type || !title || !requesterUserId) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    if (!communityId || !type || !title) {
+      return errorResponse('Missing required fields', 'VALIDATION_ERROR', 400);
+    }
+
+    const membershipError = await ensureMembership(authenticatedUserId, communityId);
+    if (membershipError) {
+      return membershipError;
     }
 
     // Validate service type
     const validTypes = ['generator', 'water', 'security', 'internet'];
     if (!validTypes.includes(type)) {
-      return NextResponse.json(
-        { error: 'Invalid service type' },
-        { status: 400 }
-      );
+      return errorResponse('Invalid service type', 'VALIDATION_ERROR', 400);
     }
 
     const serviceData = {
@@ -107,7 +156,7 @@ export async function POST(request) {
       type,
       title,
       description: description || '',
-      requesterUserId,
+      requesterUserId: authenticatedUserId,
       requesterName: requesterName || 'Anonymous',
       requesterContact: requesterContact || '',
       status: 'open', // open, in-progress, completed, cancelled
@@ -145,11 +194,16 @@ export async function POST(request) {
 // PUT - Update smart service (join/leave, update status, etc.)
 export async function PUT(request) {
   try {
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authFailureResponse(authResult.error);
+    }
+
+    const authenticatedUserId = authResult.userId;
     const data = await request.json();
     const {
       serviceId,
       action, // 'join', 'leave', 'update_status', 'update_cost'
-      userId,
       userName,
       userContact,
       newStatus,
@@ -158,54 +212,40 @@ export async function PUT(request) {
     } = data;
 
     if (!serviceId || !action) {
-      return NextResponse.json(
-        { error: 'Service ID and action are required' },
-        { status: 400 }
-      );
+      return errorResponse('Service ID and action are required', 'VALIDATION_ERROR', 400);
     }
 
     const serviceRef = db.collection('hubSmartServices').doc(serviceId);
     const serviceDoc = await serviceRef.get();
     
     if (!serviceDoc.exists) {
-      return NextResponse.json(
-        { error: 'Service not found' },
-        { status: 404 }
-      );
+      return errorResponse('Service not found', 'NOT_FOUND', 404);
     }
 
     const serviceData = serviceDoc.data();
+    const membershipError = await ensureMembership(authenticatedUserId, serviceData.communityId);
+    if (membershipError) {
+      return membershipError;
+    }
+
     let updateData = { updatedAt: new Date() };
 
     switch (action) {
       case 'join':
-        if (!userId) {
-          return NextResponse.json(
-            { error: 'User ID required for join action' },
-            { status: 400 }
-          );
-        }
-        
         // Check if user already joined
-        if (serviceData.participants.some(p => p.userId === userId)) {
-          return NextResponse.json(
-            { error: 'User already joined this service' },
-            { status: 400 }
-          );
+        if (serviceData.participants.some(p => p.userId === authenticatedUserId)) {
+          return errorResponse('User already joined this service', 'VALIDATION_ERROR', 400);
         }
         
         // Check if service is full
         if (serviceData.currentParticipants >= serviceData.maxParticipants) {
-          return NextResponse.json(
-            { error: 'Service is full' },
-            { status: 400 }
-          );
+          return errorResponse('Service is full', 'VALIDATION_ERROR', 400);
         }
 
         updateData.participants = [
           ...serviceData.participants,
           {
-            userId,
+            userId: authenticatedUserId,
             userName: userName || 'Anonymous',
             userContact: userContact || '',
             joinedAt: new Date()
@@ -215,28 +255,29 @@ export async function PUT(request) {
         break;
 
       case 'leave':
-        if (!userId) {
-          return NextResponse.json(
-            { error: 'User ID required for leave action' },
-            { status: 400 }
-          );
+        updateData.participants = serviceData.participants.filter(p => p.userId !== authenticatedUserId);
+        if (serviceData.participants.length === updateData.participants.length) {
+          return errorResponse('User has not joined this service', 'VALIDATION_ERROR', 400);
         }
-        
-        updateData.participants = serviceData.participants.filter(p => p.userId !== userId);
         updateData.currentParticipants = Math.max(0, serviceData.currentParticipants - 1);
         break;
 
       case 'update_status':
+        if (serviceData.requesterUserId !== authenticatedUserId) {
+          return errorResponse('Only the service creator can update status', 'FORBIDDEN', 403);
+        }
+
         if (!newStatus || !['open', 'in-progress', 'completed', 'cancelled'].includes(newStatus)) {
-          return NextResponse.json(
-            { error: 'Invalid status' },
-            { status: 400 }
-          );
+          return errorResponse('Invalid status', 'VALIDATION_ERROR', 400);
         }
         updateData.status = newStatus;
         break;
 
       case 'update_cost':
+        if (serviceData.requesterUserId !== authenticatedUserId) {
+          return errorResponse('Only the service creator can update cost', 'FORBIDDEN', 403);
+        }
+
         if (actualCost !== undefined) {
           updateData.actualCost = actualCost;
           updateData.costPerParticipant = serviceData.currentParticipants > 0 
@@ -279,35 +320,35 @@ export async function PUT(request) {
 // DELETE - Delete smart service (only by creator or admin)
 export async function DELETE(request) {
   try {
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authFailureResponse(authResult.error);
+    }
+
+    const authenticatedUserId = authResult.userId;
     const { searchParams } = new URL(request.url);
     const serviceId = searchParams.get('serviceId');
-    const userId = searchParams.get('userId');
     
-    if (!serviceId || !userId) {
-      return NextResponse.json(
-        { error: 'Service ID and User ID are required' },
-        { status: 400 }
-      );
+    if (!serviceId) {
+      return errorResponse('Service ID is required', 'VALIDATION_ERROR', 400);
     }
 
     const serviceRef = db.collection('hubSmartServices').doc(serviceId);
     const serviceDoc = await serviceRef.get();
     
     if (!serviceDoc.exists) {
-      return NextResponse.json(
-        { error: 'Service not found' },
-        { status: 404 }
-      );
+      return errorResponse('Service not found', 'NOT_FOUND', 404);
     }
 
     const serviceData = serviceDoc.data();
+    const membershipError = await ensureMembership(authenticatedUserId, serviceData.communityId);
+    if (membershipError) {
+      return membershipError;
+    }
     
     // Only allow deletion by the requester
-    if (serviceData.requesterUserId !== userId) {
-      return NextResponse.json(
-        { error: 'Only the service creator can delete this service' },
-        { status: 403 }
-      );
+    if (serviceData.requesterUserId !== authenticatedUserId) {
+      return errorResponse('Only the service creator can delete this service', 'FORBIDDEN', 403);
     }
 
     await serviceRef.delete();

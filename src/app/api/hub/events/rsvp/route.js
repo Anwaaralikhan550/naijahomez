@@ -1,6 +1,37 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request) {
   try {
@@ -13,7 +44,7 @@ export async function GET(request) {
     const communityId = searchParams.get('communityId');
 
     if (!userId) {
-      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+      return errorResponse('User ID is required', 'VALIDATION_ERROR', 400);
     }
 
     let query;
@@ -43,7 +74,7 @@ export async function GET(request) {
     return NextResponse.json({ rsvps });
   } catch (error) {
     console.error('Error in RSVP GET:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
@@ -55,10 +86,10 @@ export async function POST(request) {
     // Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
-    const userId = authResult.userId;
+    const authenticatedUserId = authResult.userId;
     const body = await request.json();
     const { action, ...data } = body;
 
@@ -72,7 +103,11 @@ export async function POST(request) {
       } = data;
 
       if (!eventId || !userId || !status) {
-        return NextResponse.json({ error: 'Event ID, user ID, and status are required' }, { status: 400 });
+        return errorResponse('Event ID, user ID, and status are required', 'VALIDATION_ERROR', 400);
+      }
+
+      if (userId !== authenticatedUserId) {
+        return errorResponse('You can only RSVP as the authenticated user', 'FORBIDDEN', 403);
       }
 
       // Check if RSVP already exists
@@ -119,7 +154,7 @@ export async function POST(request) {
       const { eventId, status } = data;
       
       if (!eventId) {
-        return NextResponse.json({ error: 'Event ID is required' }, { status: 400 });
+        return errorResponse('Event ID is required', 'VALIDATION_ERROR', 400);
       }
 
       let query = db.collection('eventRsvps')
@@ -145,7 +180,7 @@ export async function POST(request) {
       const { eventId, userId } = data;
       
       if (!eventId || !userId) {
-        return NextResponse.json({ error: 'Event ID and user ID are required' }, { status: 400 });
+        return errorResponse('Event ID and user ID are required', 'VALIDATION_ERROR', 400);
       }
 
       const rsvpSnapshot = await db.collection('eventRsvps')
@@ -166,29 +201,29 @@ export async function POST(request) {
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'VALIDATION_ERROR', 400);
   } catch (error) {
     console.error('Error in RSVP POST:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
 async function updateEventCounts(eventId, oldStatus, newStatus) {
-  const db = getFirestore();
+  const db = getAdminFirestore();
   const updateData = {};
 
   // Decrement old status count
   if (oldStatus) {
     switch (oldStatus) {
       case 'going':
-        updateData.goingCount = admin.firestore.FieldValue.increment(-1);
-        updateData.attendeeCount = admin.firestore.FieldValue.increment(-1);
+        updateData.goingCount = FieldValue.increment(-1);
+        updateData.attendeeCount = FieldValue.increment(-1);
         break;
       case 'maybe':
-        updateData.maybeCount = admin.firestore.FieldValue.increment(-1);
+        updateData.maybeCount = FieldValue.increment(-1);
         break;
       case 'not_going':
-        updateData.notGoingCount = admin.firestore.FieldValue.increment(-1);
+        updateData.notGoingCount = FieldValue.increment(-1);
         break;
     }
   }
@@ -197,14 +232,14 @@ async function updateEventCounts(eventId, oldStatus, newStatus) {
   if (newStatus) {
     switch (newStatus) {
       case 'going':
-        updateData.goingCount = admin.firestore.FieldValue.increment(1);
-        updateData.attendeeCount = admin.firestore.FieldValue.increment(1);
+        updateData.goingCount = FieldValue.increment(1);
+        updateData.attendeeCount = FieldValue.increment(1);
         break;
       case 'maybe':
-        updateData.maybeCount = admin.firestore.FieldValue.increment(1);
+        updateData.maybeCount = FieldValue.increment(1);
         break;
       case 'not_going':
-        updateData.notGoingCount = admin.firestore.FieldValue.increment(1);
+        updateData.notGoingCount = FieldValue.increment(1);
         break;
     }
   }

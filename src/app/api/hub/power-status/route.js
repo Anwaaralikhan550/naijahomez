@@ -1,12 +1,17 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initAdmin } from '@/lib/firebase-admin';
+import { getAdminFirestore, initAdmin } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
+import { isUserActiveCommunityMember } from '@/lib/hubFirestore';
 
 // Initialize admin SDK
 initAdmin();
 
-const db = getFirestore();
+const db = getAdminFirestore();
+
+function errorResponse(message, status = 500) {
+  return NextResponse.json({ error: message }, { status });
+}
 
 // GET - Fetch power status for a community
 export async function GET(request) {
@@ -17,14 +22,17 @@ export async function GET(request) {
       return authResult.error;
     }
 
+    const authenticatedUserId = authResult.userId;
     const { searchParams } = new URL(request.url);
     const communityId = searchParams.get('communityId');
     
     if (!communityId) {
-      return NextResponse.json(
-        { error: 'Community ID is required' },
-        { status: 400 }
-      );
+      return errorResponse('Community ID is required', 400);
+    }
+
+    const isMember = await isUserActiveCommunityMember(authenticatedUserId, communityId);
+    if (!isMember) {
+      return errorResponse('You are not a member of this community', 403);
     }
 
     const statusRef = db.collection('hubPowerStatus').doc(communityId);
@@ -65,39 +73,44 @@ export async function GET(request) {
 // POST - Update power status for a community
 export async function POST(request) {
   try {
+    // SECURITY: Verify authentication
+    const authResult = await verifyAuth(request);
+    if (!authResult.success) {
+      return authResult.error;
+    }
+
+    const authenticatedUserId = authResult.userId;
     const data = await request.json();
     const {
       communityId,
       status, // 'on', 'off', 'unknown'
       updatedBy,
-      updatedById,
       lastUpdate,
       lastOutage
     } = data;
 
     // Validate required fields
-    if (!communityId || !status || !updatedBy || !updatedById) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    if (!communityId || !status || !updatedBy) {
+      return errorResponse('Missing required fields', 400);
+    }
+
+    const isMember = await isUserActiveCommunityMember(authenticatedUserId, communityId);
+    if (!isMember) {
+      return errorResponse('You are not a member of this community', 403);
     }
 
     // Validate status
     const validStatuses = ['on', 'off', 'unknown'];
     if (!validStatuses.includes(status)) {
-      return NextResponse.json(
-        { error: 'Invalid status. Must be: on, off, or unknown' },
-        { status: 400 }
-      );
+      return errorResponse('Invalid status. Must be: on, off, or unknown', 400);
     }
 
     const statusData = {
       communityId,
       status,
       updatedBy,
-      updatedById,
-      lastUpdate: new Date(lastUpdate),
+      updatedById: authenticatedUserId,
+      lastUpdate: lastUpdate ? new Date(lastUpdate) : new Date(),
       updatedAt: new Date()
     };
 
@@ -145,9 +158,6 @@ export async function POST(request) {
 
   } catch (error) {
     console.error('Error updating power status:', error);
-    return NextResponse.json(
-      { error: 'Failed to update power status' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to update power status', 500);
   }
 }

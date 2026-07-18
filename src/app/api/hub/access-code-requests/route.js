@@ -1,6 +1,65 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+
+const FIRESTORE_INDEX_URL_REGEX = /(https:\/\/console\.firebase\.google\.com\/[^\s)\]]+)/i;
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500, indexUrl = null) {
+  return NextResponse.json({ success: false, error: message, code, indexUrl }, { status });
+}
+
+function extractFirestoreIndexUrl(error) {
+  const message = String(error?.message || '');
+  const match = message.match(FIRESTORE_INDEX_URL_REGEX);
+  return match?.[1] || null;
+}
+
+function isFirestoreMissingIndexError(error) {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    code === 'FAILED_PRECONDITION' ||
+    code === '9' ||
+    message.includes('failed precondition') ||
+    (message.includes('index') && message.includes('create'))
+  );
+}
+
+async function runFirestoreRead(readOperation, context) {
+  try {
+    return await readOperation();
+  } catch (error) {
+    if (isFirestoreMissingIndexError(error)) {
+      const indexUrl = extractFirestoreIndexUrl(error);
+      if (indexUrl) {
+        console.error(`[Firestore Index Required][${context}] ${indexUrl}`);
+      }
+
+      const wrappedError = new Error('Firestore index required');
+      wrappedError.code = 'FIRESTORE_INDEX_REQUIRED';
+      wrappedError.status = 503;
+      wrappedError.indexUrl = indexUrl;
+      wrappedError.context = context;
+      throw wrappedError;
+    }
+
+    throw error;
+  }
+}
+
+function firestoreErrorResponse(error, fallbackMessage, fallbackCode) {
+  if (error?.code === 'FIRESTORE_INDEX_REQUIRED') {
+    return errorResponse(
+      'Firestore index required for this query',
+      'FIRESTORE_INDEX_REQUIRED',
+      error?.status || 503,
+      error?.indexUrl || null
+    );
+  }
+
+  return errorResponse(fallbackMessage, fallbackCode, 500);
+}
 
 export async function GET(request) {
   try {
@@ -33,11 +92,15 @@ export async function GET(request) {
     }
 
     // Get access code requests using Admin SDK syntax
-    const requestsSnapshot = await db.collection('hub_access_requests')
-      .where('communityId', '==', communityId)
-      .where('status', '==', 'pending')
-      .orderBy('requestedAt', 'desc')
-      .get();
+    const requestsSnapshot = await runFirestoreRead(
+      () =>
+        db.collection('hub_access_requests')
+          .where('communityId', '==', communityId)
+          .where('status', '==', 'pending')
+          .orderBy('requestedAt', 'desc')
+          .get(),
+      'hubAccessRequests.listPending'
+    );
 
     const requests = [];
     requestsSnapshot.forEach(doc => {
@@ -52,10 +115,7 @@ export async function GET(request) {
 
   } catch (error) {
     console.error('Error fetching access code requests:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch access code requests' },
-      { status: 500 }
-    );
+    return firestoreErrorResponse(error, 'Failed to fetch access code requests', 'ACCESS_CODE_REQUESTS_FETCH_FAILED');
   }
 }
 
@@ -95,10 +155,7 @@ export async function POST(request) {
 
   } catch (error) {
     console.error('Error creating access code request:', error);
-    return NextResponse.json(
-      { error: 'Failed to create access code request' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to create access code request', 'ACCESS_CODE_REQUEST_CREATE_FAILED', 500);
   }
 }
 
@@ -152,9 +209,6 @@ export async function PUT(request) {
 
   } catch (error) {
     console.error('Error updating access code request:', error);
-    return NextResponse.json(
-      { error: 'Failed to update access code request' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to update access code request', 'ACCESS_CODE_REQUEST_UPDATE_FAILED', 500);
   }
 }

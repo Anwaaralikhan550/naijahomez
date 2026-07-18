@@ -1,13 +1,44 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
+import { isUserActiveCommunityMember } from '@/lib/hubFirestore';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request) {
   try {
     // Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -16,11 +47,28 @@ export async function GET(request) {
     const conversationId = searchParams.get('conversationId');
 
     if (!communityId) {
-      return NextResponse.json({ error: 'Community ID is required' }, { status: 400 });
+      return errorResponse('Community ID is required', 'VALIDATION_ERROR', 400);
     }
 
     // Initialize admin SDK
     const db = getAdminFirestore();
+    const isMember = await isUserActiveCommunityMember(userId, communityId);
+    if (!isMember) {
+      return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
+    }
+
+    if (conversationId) {
+      const conversationDoc = await db.collection('privateConversations').doc(conversationId).get();
+      if (!conversationDoc.exists) {
+        return errorResponse('Conversation not found', 'NOT_FOUND', 404);
+      }
+
+      const conversationData = conversationDoc.data() || {};
+      const participantIds = Array.isArray(conversationData.participantIds) ? conversationData.participantIds : [];
+      if (!participantIds.includes(userId)) {
+        return errorResponse('Access denied for this conversation', 'FORBIDDEN', 403);
+      }
+    }
 
     // Create a ReadableStream for SSE
     const stream = new ReadableStream({
@@ -120,6 +168,6 @@ export async function GET(request) {
 
   } catch (error) {
     console.error('Error in messages SSE endpoint:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }

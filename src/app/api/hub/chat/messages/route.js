@@ -1,7 +1,37 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 // Helper function to verify community membership
 async function verifyCommunityMembership(db, userId, communityId) {
@@ -20,7 +50,7 @@ export async function GET(request) {
     // SECURITY: Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const authenticatedUserId = authResult.userId;
@@ -32,16 +62,13 @@ export async function GET(request) {
     const messageLimit = Math.min(parseInt(searchParams.get('limit')) || 50, 100);
 
     if (!communityId || !channel) {
-      return NextResponse.json({ error: 'Community ID and channel are required' }, { status: 400 });
+      return errorResponse('Community ID and channel are required', 'VALIDATION_ERROR', 400);
     }
 
     // SECURITY: Verify community membership
     const isMember = await verifyCommunityMembership(db, authenticatedUserId, communityId);
     if (!isMember) {
-      return NextResponse.json(
-        { error: 'You are not a member of this community' },
-        { status: 403 }
-      );
+      return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
     }
 
     const querySnapshot = await db.collection('chatMessages')
@@ -79,7 +106,7 @@ export async function GET(request) {
     return NextResponse.json({ messages: messagesWithReplies });
   } catch (error) {
     logger.error('Error in chat messages GET', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
@@ -88,7 +115,7 @@ export async function POST(request) {
     // SECURITY: Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const authenticatedUserId = authResult.userId;
@@ -108,16 +135,13 @@ export async function POST(request) {
       } = data;
 
       if (!communityId || !channel || !content) {
-        return NextResponse.json({ error: 'Required fields missing' }, { status: 400 });
+        return errorResponse('Required fields missing', 'VALIDATION_ERROR', 400);
       }
 
       // SECURITY: Verify community membership
       const isMember = await verifyCommunityMembership(db, authenticatedUserId, communityId);
       if (!isMember) {
-        return NextResponse.json(
-          { error: 'You are not a member of this community' },
-          { status: 403 }
-        );
+        return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
       }
 
       const messageData = {
@@ -144,21 +168,18 @@ export async function POST(request) {
       const { messageId, content } = data;
 
       if (!messageId || !content) {
-        return NextResponse.json({ error: 'Message ID and content are required' }, { status: 400 });
+        return errorResponse('Message ID and content are required', 'VALIDATION_ERROR', 400);
       }
 
       // SECURITY: Verify ownership before editing
       const messageSnap = await db.collection('chatMessages').doc(messageId).get();
       if (!messageSnap.exists()) {
-        return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+        return errorResponse('Message not found', 'NOT_FOUND', 404);
       }
 
       const messageData = messageSnap.data();
       if (messageData.authorId !== authenticatedUserId) {
-        return NextResponse.json(
-          { error: 'You can only edit your own messages' },
-          { status: 403 }
-        );
+        return errorResponse('You can only edit your own messages', 'FORBIDDEN', 403);
       }
 
       await db.collection('chatMessages').doc(messageId).update({
@@ -174,21 +195,18 @@ export async function POST(request) {
       const { messageId } = data;
 
       if (!messageId) {
-        return NextResponse.json({ error: 'Message ID is required' }, { status: 400 });
+        return errorResponse('Message ID is required', 'VALIDATION_ERROR', 400);
       }
 
       // SECURITY: Verify ownership before deleting
       const messageSnap = await db.collection('chatMessages').doc(messageId).get();
       if (!messageSnap.exists()) {
-        return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+        return errorResponse('Message not found', 'NOT_FOUND', 404);
       }
 
       const messageData = messageSnap.data();
       if (messageData.authorId !== authenticatedUserId) {
-        return NextResponse.json(
-          { error: 'You can only delete your own messages' },
-          { status: 403 }
-        );
+        return errorResponse('You can only delete your own messages', 'FORBIDDEN', 403);
       }
 
       await db.collection('chatMessages').doc(messageId).update({
@@ -205,13 +223,13 @@ export async function POST(request) {
       const { messageId, emoji } = data;
 
       if (!messageId || !emoji) {
-        return NextResponse.json({ error: 'Message ID and emoji are required' }, { status: 400 });
+        return errorResponse('Message ID and emoji are required', 'VALIDATION_ERROR', 400);
       }
 
       const messageSnap = await db.collection('chatMessages').doc(messageId).get();
 
       if (!messageSnap.exists()) {
-        return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+        return errorResponse('Message not found', 'NOT_FOUND', 404);
       }
 
       const messageData = messageSnap.data();
@@ -219,10 +237,7 @@ export async function POST(request) {
       // SECURITY: Verify user is member of the community
       const isMember = await verifyCommunityMembership(db, authenticatedUserId, messageData.communityId);
       if (!isMember) {
-        return NextResponse.json(
-          { error: 'You are not a member of this community' },
-          { status: 403 }
-        );
+        return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
       }
 
       const reactions = messageData.reactions || {};
@@ -254,16 +269,13 @@ export async function POST(request) {
       const { communityId, channel, beforeTimestamp, messageLimit = 20 } = data;
 
       if (!communityId || !channel) {
-        return NextResponse.json({ error: 'Community ID and channel are required' }, { status: 400 });
+        return errorResponse('Community ID and channel are required', 'VALIDATION_ERROR', 400);
       }
 
       // SECURITY: Verify community membership
       const isMember = await verifyCommunityMembership(db, authenticatedUserId, communityId);
       if (!isMember) {
-        return NextResponse.json(
-          { error: 'You are not a member of this community' },
-          { status: 403 }
-        );
+        return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
       }
 
       let query;
@@ -294,9 +306,9 @@ export async function POST(request) {
       return NextResponse.json({ messages });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'VALIDATION_ERROR', 400);
   } catch (error) {
     logger.error('Error in chat messages POST', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }

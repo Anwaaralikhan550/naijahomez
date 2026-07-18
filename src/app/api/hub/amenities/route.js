@@ -1,14 +1,45 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { 
   getAmenities,
   createAmenityBooking,
   updateDocument,
-  deleteDocument 
+  deleteDocument,
+  normalizeImageFields
 } from '@/lib/hubFirestore';
 
 
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request) {
   try {
@@ -23,7 +54,7 @@ export async function GET(request) {
     const admin = searchParams.get('admin');
 
     if (!communityId) {
-      return NextResponse.json({ error: 'Community ID is required' }, { status: 400 });
+      return errorResponse('Community ID is required', 'VALIDATION_ERROR', 400);
     }
 
     if (action === 'bookings') {
@@ -39,7 +70,7 @@ export async function GET(request) {
           .where('amenityId', '==', amenityId)
           .orderBy('bookingDate', 'asc');
       } else {
-        return NextResponse.json({ error: 'User ID or Amenity ID required for bookings' }, { status: 400 });
+        return errorResponse('User ID or Amenity ID required for bookings', 'VALIDATION_ERROR', 400);
       }
 
       const querySnapshot = await query.get();
@@ -60,7 +91,7 @@ export async function GET(request) {
         .get();
       const amenities = [];
       querySnapshot.forEach((doc) => {
-        amenities.push({ id: doc.id, ...doc.data() });
+        amenities.push(normalizeImageFields({ id: doc.id, ...doc.data() }));
       });
 
       return NextResponse.json({ amenities });
@@ -71,7 +102,7 @@ export async function GET(request) {
     }
   } catch (error) {
     console.error('Error in amenities API:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
@@ -83,7 +114,7 @@ export async function POST(request) {
     // Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -131,7 +162,7 @@ export async function POST(request) {
       } = data;
 
       if (!communityId || !name || !createdBy) {
-        return NextResponse.json({ error: 'Community ID, name, and creator are required' }, { status: 400 });
+        return errorResponse('Community ID, name, and creator are required', 'VALIDATION_ERROR', 400);
       }
 
       const amenityData = {
@@ -147,7 +178,7 @@ export async function POST(request) {
         requiresApproval: requiresApproval || false,
         isActive: isActive !== false,
         fee: fee || 0,
-        images: images || [],
+        ...normalizeImageFields({ images: images || [] }),
         createdBy,
         createdByName,
         createdAt: new Date(),
@@ -162,11 +193,11 @@ export async function POST(request) {
       const { amenityId, ...updateData } = data;
       
       if (!amenityId) {
-        return NextResponse.json({ error: 'Amenity ID is required' }, { status: 400 });
+        return errorResponse('Amenity ID is required', 'VALIDATION_ERROR', 400);
       }
 
       const updates = {
-        ...updateData,
+        ...normalizeImageFields(updateData),
         lastModifiedAt: new Date()
       };
       
@@ -185,7 +216,7 @@ export async function POST(request) {
       const { amenityId } = data;
       
       if (!amenityId) {
-        return NextResponse.json({ error: 'Amenity ID is required' }, { status: 400 });
+        return errorResponse('Amenity ID is required', 'VALIDATION_ERROR', 400);
       }
 
       // Soft delete by marking as inactive
@@ -197,9 +228,9 @@ export async function POST(request) {
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'VALIDATION_ERROR', 400);
   } catch (error) {
     console.error('Error in amenities POST:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }

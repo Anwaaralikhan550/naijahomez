@@ -1,18 +1,81 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
 
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+const MAX_POST_CONTENT_LENGTH = 3000;
+const MAX_COMMENT_CONTENT_LENGTH = 1000;
+const MAX_POST_LOCATION_LENGTH = 180;
+
+function validateLength(field, value, maxLength) {
+  if (typeof value !== 'string') return null;
+  if (value.length <= maxLength) return null;
+
+  return NextResponse.json(
+    {
+      success: false,
+      code: 'VALIDATION_LENGTH_EXCEEDED',
+      error: `Field '${field}' exceeds max length of ${maxLength} characters`,
+      field,
+      maxLength,
+      actualLength: value.length
+    },
+    { status: 400 }
+  );
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
+
 // Helper function to verify community membership
 async function verifyCommunityMembership(db, userId, communityId) {
-  const memberQuery = await db.collection('hubMembers')
+  const activeFlagQuery = await db.collection('hubMembers')
     .where('userId', '==', userId)
     .where('communityId', '==', communityId)
     .where('isActive', '==', true)
     .limit(1)
     .get();
 
-  return !memberQuery.empty;
+  if (!activeFlagQuery.empty) {
+    return true;
+  }
+
+  // Backward compatibility: older membership records use `status: active`
+  const activeStatusQuery = await db.collection('hubMembers')
+    .where('userId', '==', userId)
+    .where('communityId', '==', communityId)
+    .where('status', '==', 'active')
+    .limit(1)
+    .get();
+
+  return !activeStatusQuery.empty;
 }
 
 export async function GET(request) {
@@ -20,7 +83,7 @@ export async function GET(request) {
     // SECURITY: Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const authenticatedUserId = authResult.userId;
@@ -32,16 +95,13 @@ export async function GET(request) {
     const postLimit = Math.min(parseInt(searchParams.get('limit')) || 20, 100);
 
     if (!communityId) {
-      return NextResponse.json({ error: 'Community ID is required' }, { status: 400 });
+      return errorResponse('Community ID is required', 'VALIDATION_ERROR', 400);
     }
 
     // SECURITY: Verify community membership
     const isMember = await verifyCommunityMembership(db, authenticatedUserId, communityId);
     if (!isMember) {
-      return NextResponse.json(
-        { error: 'You are not a member of this community' },
-        { status: 403 }
-      );
+      return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
     }
 
     let q;
@@ -96,7 +156,7 @@ export async function GET(request) {
     return NextResponse.json({ posts });
   } catch (error) {
     logger.error('Error in social feed GET', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
 
@@ -105,7 +165,7 @@ export async function POST(request) {
     // SECURITY: Verify authentication
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authFailureResponse(authResult.error);
     }
 
     const authenticatedUserId = authResult.userId;
@@ -135,24 +195,33 @@ export async function POST(request) {
       } = data;
 
       if (!communityId || !content) {
-        return NextResponse.json({ error: 'Required fields missing' }, { status: 400 });
+        return errorResponse('Required fields missing', 'VALIDATION_ERROR', 400);
+      }
+
+      const trimmedContent = String(content).trim();
+      const contentLengthError = validateLength('content', trimmedContent, MAX_POST_CONTENT_LENGTH);
+      if (contentLengthError) {
+        return contentLengthError;
+      }
+
+      const trimmedLocation = String(location || '').trim();
+      const locationLengthError = validateLength('location', trimmedLocation, MAX_POST_LOCATION_LENGTH);
+      if (locationLengthError) {
+        return locationLengthError;
       }
 
       // SECURITY: Verify community membership
       const isMember = await verifyCommunityMembership(db, authenticatedUserId, communityId);
       if (!isMember) {
-        return NextResponse.json(
-          { error: 'You are not a member of this community' },
-          { status: 403 }
-        );
+        return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
       }
 
       const postData = {
         communityId,
-        content: content.trim(),
+        content: trimmedContent,
         type,
         tags,
-        location: location?.trim() || '',
+        location: trimmedLocation,
         attachments,
         authorId: authenticatedUserId, // SECURITY: Use authenticated user ID
         authorName,
@@ -169,10 +238,15 @@ export async function POST(request) {
       };
 
       if (type === 'event') {
-        postData.eventDate = eventDate;
-        postData.eventTime = eventTime;
-        postData.eventEndDate = eventEndDate;
-        postData.eventEndTime = eventEndTime;
+        const normalizedEventDate = typeof eventDate === 'string' ? eventDate.trim() : eventDate;
+        const normalizedEventTime = typeof eventTime === 'string' ? eventTime.trim() : eventTime;
+        const normalizedEventEndDate = typeof eventEndDate === 'string' ? eventEndDate.trim() : eventEndDate;
+        const normalizedEventEndTime = typeof eventEndTime === 'string' ? eventEndTime.trim() : eventEndTime;
+
+        postData.eventDate = normalizedEventDate || null;
+        postData.eventTime = normalizedEventTime || null;
+        postData.eventEndDate = normalizedEventEndDate || null;
+        postData.eventEndTime = normalizedEventEndTime || null;
         postData.maxAttendees = maxAttendees ? parseInt(maxAttendees) : null;
         postData.requiresApproval = requiresApproval || false;
         postData.rsvps = [];
@@ -196,14 +270,14 @@ export async function POST(request) {
       const { postId } = data;
 
       if (!postId) {
-        return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
+        return errorResponse('Post ID is required', 'VALIDATION_ERROR', 400);
       }
 
       const postRef = db.collection('socialPosts').doc(postId);
       const postSnap = await postRef.get();
 
       if (!postSnap.exists) {
-        return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+        return errorResponse('Post not found', 'NOT_FOUND', 404);
       }
 
       const postData = postSnap.data();
@@ -211,10 +285,7 @@ export async function POST(request) {
       // SECURITY: Verify user is member of the community
       const isMember = await verifyCommunityMembership(db, authenticatedUserId, postData.communityId);
       if (!isMember) {
-        return NextResponse.json(
-          { error: 'You are not a member of this community' },
-          { status: 403 }
-        );
+        return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
       }
 
       const likes = postData.likes || [];
@@ -243,12 +314,18 @@ export async function POST(request) {
       const { postId, content, authorName } = data;
 
       if (!postId || !content) {
-        return NextResponse.json({ error: 'Required fields missing' }, { status: 400 });
+        return errorResponse('Required fields missing', 'VALIDATION_ERROR', 400);
+      }
+
+      const trimmedContent = String(content).trim();
+      const commentLengthError = validateLength('content', trimmedContent, MAX_COMMENT_CONTENT_LENGTH);
+      if (commentLengthError) {
+        return commentLengthError;
       }
 
       const postSnap = await db.collection('socialPosts').doc(postId).get();
       if (!postSnap.exists) {
-        return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+        return errorResponse('Post not found', 'NOT_FOUND', 404);
       }
 
       const postData = postSnap.data();
@@ -256,15 +333,12 @@ export async function POST(request) {
       // SECURITY: Verify user is member of the community
       const isMember = await verifyCommunityMembership(db, authenticatedUserId, postData.communityId);
       if (!isMember) {
-        return NextResponse.json(
-          { error: 'You are not a member of this community' },
-          { status: 403 }
-        );
+        return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
       }
 
       const commentData = {
         postId,
-        content: content.trim(),
+        content: trimmedContent,
         authorId: authenticatedUserId, // SECURITY: Use authenticated user ID
         authorName,
         likes: [],
@@ -290,7 +364,7 @@ export async function POST(request) {
       const { postId, content, tags, location } = data;
 
       if (!postId) {
-        return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
+        return errorResponse('Post ID is required', 'VALIDATION_ERROR', 400);
       }
 
       // SECURITY: Verify ownership before updating
@@ -298,24 +372,109 @@ export async function POST(request) {
       const postSnap = await postRef.get();
 
       if (!postSnap.exists) {
-        return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+        return errorResponse('Post not found', 'NOT_FOUND', 404);
       }
 
       const postData = postSnap.data();
       if (postData.authorId !== authenticatedUserId) {
-        return NextResponse.json(
-          { error: 'You can only update your own posts' },
-          { status: 403 }
-        );
+        return errorResponse('You can only update your own posts', 'FORBIDDEN', 403);
       }
 
       // Only allow updating safe fields
       const updateData = { updatedAt: new Date() };
-      if (content !== undefined) updateData.content = content.trim();
+      if (content !== undefined) {
+        const trimmedContent = String(content).trim();
+        const contentLengthError = validateLength('content', trimmedContent, MAX_POST_CONTENT_LENGTH);
+        if (contentLengthError) {
+          return contentLengthError;
+        }
+        updateData.content = trimmedContent;
+      }
       if (tags !== undefined) updateData.tags = tags;
-      if (location !== undefined) updateData.location = location?.trim() || '';
+      if (location !== undefined) {
+        const trimmedLocation = String(location || '').trim();
+        const locationLengthError = validateLength('location', trimmedLocation, MAX_POST_LOCATION_LENGTH);
+        if (locationLengthError) {
+          return locationLengthError;
+        }
+        updateData.location = trimmedLocation;
+      }
 
       await postRef.update(updateData);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'update_comment') {
+      const { commentId, content } = data;
+
+      if (!commentId || !content) {
+        return errorResponse('Comment ID and content are required', 'VALIDATION_ERROR', 400);
+      }
+
+      const commentRef = db.collection('socialComments').doc(commentId);
+      const commentSnap = await commentRef.get();
+
+      if (!commentSnap.exists) {
+        return errorResponse('Comment not found', 'NOT_FOUND', 404);
+      }
+
+      const commentData = commentSnap.data();
+      if (commentData.authorId !== authenticatedUserId) {
+        return errorResponse('You can only edit your own comments', 'FORBIDDEN', 403);
+      }
+
+      const trimmedContent = String(content).trim();
+      const commentLengthError = validateLength('content', trimmedContent, MAX_COMMENT_CONTENT_LENGTH);
+      if (commentLengthError) {
+        return commentLengthError;
+      }
+
+      await commentRef.update({
+        content: trimmedContent,
+        updatedAt: new Date(),
+        editedAt: new Date()
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'delete_comment') {
+      const { commentId } = data;
+
+      if (!commentId) {
+        return errorResponse('Comment ID is required', 'VALIDATION_ERROR', 400);
+      }
+
+      const commentRef = db.collection('socialComments').doc(commentId);
+      const commentSnap = await commentRef.get();
+
+      if (!commentSnap.exists) {
+        return errorResponse('Comment not found', 'NOT_FOUND', 404);
+      }
+
+      const commentData = commentSnap.data();
+      if (commentData.authorId !== authenticatedUserId) {
+        return errorResponse('You can only delete your own comments', 'FORBIDDEN', 403);
+      }
+
+      await commentRef.update({
+        isActive: false,
+        deletedAt: new Date(),
+        deletedBy: authenticatedUserId,
+        updatedAt: new Date()
+      });
+
+      const postRef = db.collection('socialPosts').doc(commentData.postId);
+      const postSnap = await postRef.get();
+      if (postSnap.exists) {
+        const postData = postSnap.data();
+        const currentCommentCount = postData.commentCount || 0;
+        await postRef.update({
+          commentCount: Math.max(currentCommentCount - 1, 0),
+          updatedAt: new Date()
+        });
+      }
+
       return NextResponse.json({ success: true });
     }
 
@@ -323,7 +482,7 @@ export async function POST(request) {
       const { postId } = data;
 
       if (!postId) {
-        return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
+        return errorResponse('Post ID is required', 'VALIDATION_ERROR', 400);
       }
 
       // SECURITY: Verify ownership before deleting
@@ -331,15 +490,12 @@ export async function POST(request) {
       const postSnap = await postRef.get();
 
       if (!postSnap.exists) {
-        return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+        return errorResponse('Post not found', 'NOT_FOUND', 404);
       }
 
       const postData = postSnap.data();
       if (postData.authorId !== authenticatedUserId) {
-        return NextResponse.json(
-          { error: 'You can only delete your own posts' },
-          { status: 403 }
-        );
+        return errorResponse('You can only delete your own posts', 'FORBIDDEN', 403);
       }
 
       await postRef.update({
@@ -355,7 +511,7 @@ export async function POST(request) {
       const { postId, reason } = data;
 
       if (!postId || !reason) {
-        return NextResponse.json({ error: 'Post ID and reason are required' }, { status: 400 });
+        return errorResponse('Post ID and reason are required', 'VALIDATION_ERROR', 400);
       }
 
       const reportData = {
@@ -374,14 +530,14 @@ export async function POST(request) {
       const { postId, status, userName } = data;
 
       if (!postId || !status || !userName) {
-        return NextResponse.json({ error: 'Post ID, status, and user name are required' }, { status: 400 });
+        return errorResponse('Post ID, status, and user name are required', 'VALIDATION_ERROR', 400);
       }
 
       const postRef = db.collection('socialPosts').doc(postId);
       const postSnap = await postRef.get();
 
       if (!postSnap.exists) {
-        return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+        return errorResponse('Post not found', 'NOT_FOUND', 404);
       }
 
       const postData = postSnap.data();
@@ -389,14 +545,11 @@ export async function POST(request) {
       // SECURITY: Verify user is member of the community
       const isMember = await verifyCommunityMembership(db, authenticatedUserId, postData.communityId);
       if (!isMember) {
-        return NextResponse.json(
-          { error: 'You are not a member of this community' },
-          { status: 403 }
-        );
+        return errorResponse('You are not a member of this community', 'FORBIDDEN', 403);
       }
 
       if (postData.type !== 'event') {
-        return NextResponse.json({ error: 'Can only RSVP to event posts' }, { status: 400 });
+        return errorResponse('Can only RSVP to event posts', 'VALIDATION_ERROR', 400);
       }
 
       let rsvps = postData.rsvps || [];
@@ -423,14 +576,14 @@ export async function POST(request) {
       const { postId } = data;
 
       if (!postId) {
-        return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
+        return errorResponse('Post ID is required', 'VALIDATION_ERROR', 400);
       }
 
       const postRef = db.collection('socialPosts').doc(postId);
       const postSnap = await postRef.get();
 
       if (!postSnap.exists) {
-        return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+        return errorResponse('Post not found', 'NOT_FOUND', 404);
       }
 
       const postData = postSnap.data();
@@ -447,14 +600,14 @@ export async function POST(request) {
       const { postId } = data;
 
       if (!postId) {
-        return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
+        return errorResponse('Post ID is required', 'VALIDATION_ERROR', 400);
       }
 
       const postRef = db.collection('socialPosts').doc(postId);
       const postSnap = await postRef.get();
 
       if (!postSnap.exists) {
-        return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+        return errorResponse('Post not found', 'NOT_FOUND', 404);
       }
 
       const postData = postSnap.data();
@@ -466,9 +619,9 @@ export async function POST(request) {
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return errorResponse('Invalid action', 'VALIDATION_ERROR', 400);
   } catch (error) {
     logger.error('Error in social feed POST', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return errorResponse(error.message, 'INTERNAL_ERROR', 500);
   }
 }
