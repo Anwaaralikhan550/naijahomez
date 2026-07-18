@@ -1,5 +1,5 @@
 import { ImageProcessor, compressImageForUpload } from '@/lib/imageProcessor';
-import { auth } from '@/lib/firebase-client';
+import { getValidAccessToken } from '@/lib/auth/client-session';
 
 /**
  * Enhanced upload service that pre-processes images before upload.
@@ -70,11 +70,10 @@ export class OptimizedUpload {
    */
   static async uploadSingleFile(file, folder = 'uploads', filename = null, userId = null, compressOptions = {}) {
     try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
+      const token = await getValidAccessToken();
+      if (!token) {
         throw new Error('Authentication required for upload');
       }
-      const token = await currentUser.getIdToken();
 
       const preparedFile = await this.prepareFileForUpload(file, compressOptions);
       const formData = new FormData();

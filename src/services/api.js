@@ -1,5 +1,5 @@
 // Client-side API service to replace direct Firestore calls
-import { auth } from '@/lib/firebase-client';
+import { getValidAccessToken } from '@/lib/auth/client-session';
 import logger from '@/lib/logger';
 import { compressImageForUpload } from '@/lib/imageProcessor';
 
@@ -63,28 +63,13 @@ class ApiService {
   }
 
   /**
-   * Get the current user's Firebase ID token for API authentication.
-   * Returns null if user is not authenticated.
+   * Get the current user's access token for API authentication.
+   * Returns null if user is not authenticated (auto-refreshes if the
+   * stored token is expired or about to expire).
    */
   async getAuthToken() {
     try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        return null;
-      }
-      // Force refresh if token is about to expire (within 5 minutes)
-      // return await currentUser.getIdToken(/* forceRefresh */ false);
-      
-      // Attempt to get token with timeout to prevent hanging
-      const tokenPromise = currentUser.getIdToken(false);
-      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2000));
-      
-      const token = await Promise.race([tokenPromise, timeoutPromise]);
-      if (!token) {
-          console.warn('Token retrieval timed out, using cached token');
-          return currentUser.accessToken;
-      }
-      return token;
+      return await getValidAccessToken();
     } catch (error) {
       logger.error('Failed to get auth token', error);
       return null;

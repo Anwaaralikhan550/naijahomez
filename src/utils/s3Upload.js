@@ -1,5 +1,5 @@
 // utils/s3Upload.js
-import { auth } from '@/lib/firebase-client';
+import { getValidAccessToken } from '@/lib/auth/client-session';
 import { compressImageForUpload } from '@/lib/imageProcessor';
 import { createDraft, getDraft, updateDraft } from '@/lib/client-drafts';
 
@@ -28,12 +28,11 @@ export const uploadToS3 = async (file, draftId = null, userId = null, options = 
   try {
     console.log("Starting file upload to S3:", file.name);
 
-    // Get Firebase auth token for upload authorization
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
+    // Get auth token for upload authorization
+    const token = await getValidAccessToken();
+    if (!token) {
       throw new Error('Authentication required for upload');
     }
-    const token = await currentUser.getIdToken();
 
     const optimized = await compressImageForUpload(file, {
       thresholdBytes: 2 * 1024 * 1024,

@@ -6,9 +6,29 @@ import { getAdminAuth, getAdminFirestore } from './firebase-admin';
 import logger from './logger';
 import { verifyAccessToken } from './auth/tokens';
 
+// Peeks a JWT's unverified header to tell a self-issued Postgres access
+// token (HS256, see src/lib/auth/tokens.js) apart from a Firebase ID token
+// (RS256, signed by Google's rotating keys). This only reads the header to
+// decide which verifier to run -- the chosen verifier still fully validates
+// the signature against its own trusted key material, so a forged header
+// can only route to the wrong (and then failing) verifier, never bypass one.
+function isPostgresAccessToken(token) {
+  try {
+    const [headerB64] = token.split('.');
+    const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8'));
+    return header.alg === 'HS256';
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Verifies the Firebase ID token from the Authorization header.
- * Returns the authenticated user's UID if valid, or an error response if not.
+ * Verifies the Authorization header's Bearer token, routing to whichever
+ * verifier matches the token's signing algorithm: the self-issued Postgres
+ * JWT (src/lib/auth/tokens.js) or the legacy Firebase ID token. Both paths
+ * return the same {success, userId, user} shape, so every one of the ~97
+ * call sites of verifyAuth() works unchanged regardless of which auth
+ * system actually issued the caller's token.
  */
 export async function verifyAuth(request) {
   try {
@@ -27,7 +47,21 @@ export async function verifyAuth(request) {
 
     const idToken = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-    if (!idToken || idToken.length < 100) {
+    if (!idToken || idToken.length < 20) {
+      return {
+        success: false,
+        error: NextResponse.json(
+          { error: 'Invalid authorization token format' },
+          { status: 401 }
+        )
+      };
+    }
+
+    if (isPostgresAccessToken(idToken)) {
+      return verifyAuthPostgres(request);
+    }
+
+    if (idToken.length < 100) {
       return {
         success: false,
         error: NextResponse.json(
@@ -118,11 +152,9 @@ export async function verifyAuth(request) {
  * Verifies a self-issued Postgres-native JWT (see src/lib/auth/tokens.js)
  * from the Authorization header. Returns the same {success, userId, user}
  * shape as verifyAuth() so every downstream call site keeps working
- * unchanged once this is wired in.
- *
- * NOT called by verifyAuth() yet -- this is Phase 5 "build only" work.
- * Phase 6 wires this in as the first-tried path in verifyAuth(), falling
- * back to the existing Firebase verification during the dual-auth window.
+ * unchanged. verifyAuth() routes here automatically for HS256 tokens (see
+ * isPostgresAccessToken() above) -- exported separately too in case a
+ * caller ever needs to require a Postgres session specifically.
  */
 export async function verifyAuthPostgres(request) {
   try {

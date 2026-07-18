@@ -1,37 +1,47 @@
 'use client';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-  GoogleAuthProvider,
-  signInWithPopup,
-  updateProfile as firebaseUpdateProfile,
-  sendEmailVerification,
-  reload
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase-client';
+import {
+  getStoredSession,
+  setStoredSession,
+  getValidAccessToken,
+  signOutSession
+} from '@/lib/auth/client-session';
 
 const AuthContext = createContext({});
 const STRONG_PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
 const isStrongPassword = (password) => STRONG_PASSWORD_REGEX.test(String(password || ''));
 
+function requiresEmailVerification(signInProvider) {
+  return signInProvider === 'password' || signInProvider === 'email';
+}
+
+function buildUserFromProfile(profile) {
+  return {
+    uid: profile.uid,
+    email: profile.email || '',
+    displayName: profile.displayName || '',
+    photoURL: profile.photoURL || '',
+    emailVerified: Boolean(profile.emailVerified),
+    requiresEmailVerification: requiresEmailVerification(profile.signInProvider),
+    signInProvider: profile.signInProvider || 'password',
+    phoneNumber: profile.phoneNumber || '',
+    location: profile.location || '',
+    bio: profile.bio || '',
+    kycStatus: profile.kycStatus || 'unverified',
+    isAdmin: profile.isAdmin === true,
+    role: profile.role || 'user'
+  };
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Helper function to determine if email verification should be required
-  const shouldRequireEmailVerification = (firebaseUser, userData = {}) => {
-    const providerId = userData.signInProvider || firebaseUser?.providerData?.[0]?.providerId || 'email';
-    return providerId === 'password' || providerId === 'email';
-  };
-
   const callProfileEndpoint = async (method = 'GET', body = null) => {
-    if (!auth.currentUser) return { success: false, profile: null };
+    const token = await getValidAccessToken();
+    if (!token) return { success: false, profile: null };
 
-    const token = await auth.currentUser.getIdToken();
     const response = await fetch('/api/auth/profile', {
       method,
       headers: {
@@ -48,147 +58,80 @@ export const AuthProvider = ({ children }) => {
     return payload;
   };
 
-  // Listen to Firebase auth state changes
+  // Bootstrap session on mount: if a stored refresh token can still produce
+  // a valid access token, fetch the profile and populate `user`. Replaces
+  // Firebase's onAuthStateChanged listener -- there's no push notification
+  // for session changes anymore, so this only runs once per page load
+  // (signIn/signUp/signOut update `user` directly instead of waiting for
+  // a listener to fire).
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          // Get additional user data from the app database.
-          const profilePayload = await callProfileEndpoint('GET');
-          const userData = profilePayload.profile || {};
-          
-          // Determine effective email verification status
-          const requiresVerification = shouldRequireEmailVerification(firebaseUser, userData);
-          const effectiveEmailVerified = firebaseUser.emailVerified || !requiresVerification;
-          
-          const user = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            displayName: firebaseUser.displayName || userData.displayName || '',
-            photoURL: firebaseUser.photoURL || userData.photoURL || '',
-            emailVerified: effectiveEmailVerified,
-            requiresEmailVerification: requiresVerification,
-            signInProvider: userData.signInProvider || firebaseUser.providerData[0]?.providerId || 'email',
-            phoneNumber: userData.phoneNumber || '',
-            location: userData.location || '',
-            bio: userData.bio || '',
-            kycStatus: userData.kycStatus || 'unverified',
-            metadata: firebaseUser.metadata
-          };
-          
-          setUser(user);
-          console.log('User authenticated:', user.uid, 'Email verified:', effectiveEmailVerified, 'Requires verification:', requiresVerification);
-        } catch (error) {
-          console.error('Error fetching user data:', error);
-          // Still set basic user info even if Firestore fails
-          const requiresVerification = shouldRequireEmailVerification(firebaseUser);
-          setUser({
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            displayName: firebaseUser.displayName || '',
-            photoURL: firebaseUser.photoURL || '',
-            emailVerified: firebaseUser.emailVerified || !requiresVerification,
-            requiresEmailVerification: requiresVerification,
-            signInProvider: firebaseUser.providerData[0]?.providerId || 'email',
-            kycStatus: 'unverified'
-          });
-        }
-      } else {
-        // Clear user state and any cached data
-        setUser(null);
-        console.log('User signed out');
-        
-        // Clear Hub-related localStorage to prevent stale state issues
-        try {
-          localStorage.removeItem('hubCurrentCommunity');
-        } catch (e) {
-          // Ignore localStorage errors in case it's not available
-        }
-      }
-      setLoading(false);
-    });
+    let cancelled = false;
 
-    return () => unsubscribe();
+    (async () => {
+      const session = getStoredSession();
+      if (!session?.accessToken) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      try {
+        const profilePayload = await callProfileEndpoint('GET');
+        if (cancelled) return;
+        if (profilePayload.success && profilePayload.profile) {
+          setUser(buildUserFromProfile(profilePayload.profile));
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('Session bootstrap failed:', error);
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Map Firebase error codes to user-friendly messages
-  const getAuthErrorMessage = (error) => {
-    switch (error.code) {
-      case 'auth/invalid-login-credentials':
-      case 'auth/wrong-password':
-      case 'auth/user-not-found':
-        return 'Invalid email or password. Please try again.';
-      case 'auth/invalid-email':
-        return 'Please enter a valid email address.';
-      case 'auth/user-disabled':
-        return 'This account has been disabled. Please contact support.';
-      case 'auth/too-many-requests':
-        return 'Too many failed attempts. Please try again later.';
-      case 'auth/network-request-failed':
-        return 'Network error. Please check your connection and try again.';
-      case 'auth/email-already-in-use':
-        return 'An account with this email already exists.';
-      case 'auth/weak-password':
-        return 'Password must be at least 8 characters and include 1 uppercase letter, 1 number, and 1 special character.';
-      default:
-        return 'An error occurred. Please try again.';
-    }
+  const ERROR_MESSAGES = {
+    INVALID_CREDENTIALS: 'Invalid email or password. Please try again.',
+    ACCOUNT_LOCKED: 'Too many failed attempts. Please try again later or reset your password.',
+    INVALID_EMAIL: 'Please enter a valid email address.',
+    WEAK_PASSWORD: 'Password must be at least 8 characters and include 1 uppercase letter, 1 number, and 1 special character.',
+    EMAIL_IN_USE: 'An account with this email already exists.',
+    CREDENTIALS_REQUIRED: 'Please enter your email and password.'
   };
 
-  const getVerificationRedirectUrl = () =>
-    `${window.location.origin}/verify-email?continueUrl=${encodeURIComponent('/dashboard')}`;
-
-  const callVerificationEndpoint = async (path, body = {}) => {
-    if (!auth.currentUser) {
-      return { success: false, error: 'No authenticated user', code: 'NO_AUTH_USER' };
-    }
-
-    try {
-      const token = await auth.currentUser.getIdToken();
-      const response = await fetch(path, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(body)
-      });
-
-      const payload = await response.json().catch(() => ({}));
-      const message = payload?.message || payload?.error || 'Verification request failed';
-
-      if (!response.ok || payload?.success === false) {
-        return {
-          success: false,
-          error: message,
-          code: payload?.code || `HTTP_${response.status}`,
-          retryAfterSeconds: payload?.retryAfterSeconds || 0,
-          manualFallback: payload?.manualFallback || null
-        };
-      }
-
-      return {
-        success: true,
-        message,
-        code: payload?.code || null
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: 'Unable to reach verification service. Please try again.',
-        code: 'VERIFICATION_SERVICE_UNREACHABLE'
-      };
-    }
-  };
+  const friendlyError = (code, fallback) => ERROR_MESSAGES[code] || fallback || 'An error occurred. Please try again.';
 
   // Sign in with email/password
   const signIn = async (email, password) => {
     try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      return { user: result.user, error: null };
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || !payload?.success) {
+        return { user: null, error: friendlyError(payload?.code, payload?.error) };
+      }
+
+      setStoredSession({
+        accessToken: payload.accessToken,
+        refreshToken: payload.refreshToken,
+        expiresAt: payload.expiresAt
+      });
+
+      const nextUser = buildUserFromProfile({ ...payload.user, uid: payload.user.uid });
+      setUser(nextUser);
+      return { user: nextUser, error: null };
     } catch (error) {
       console.error('Sign in error:', error);
-      return { user: null, error: getAuthErrorMessage(error) };
+      return { user: null, error: 'Unable to reach the sign-in service. Please try again.' };
     }
   };
 
@@ -198,128 +141,102 @@ export const AuthProvider = ({ children }) => {
       if (!isStrongPassword(password)) {
         return {
           user: null,
-          error: 'Password must be at least 8 characters and include 1 uppercase letter, 1 number, and 1 special character.',
+          error: friendlyError('WEAK_PASSWORD'),
           needsVerification: false
         };
       }
 
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      
-      // Create user profile in the app database.
-      await callProfileEndpoint('POST', {
-        email: result.user.email,
-        displayName: displayName || '',
-        photoURL: '',
-        emailVerified: false,
-        kycStatus: 'unverified',
-        signInProvider: 'password',
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, displayName })
       });
+      const payload = await response.json().catch(() => ({}));
 
-      let verificationWarning = null;
-
-      // Prefer server-side SMTP flow (with fallback logging)
-      const smtpDispatch = await callVerificationEndpoint('/api/auth/send-verification', {
-        email: result.user.email
-      });
-
-      // Fallback provider if SMTP pipeline is unavailable
-      if (!smtpDispatch.success) {
-        try {
-          await sendEmailVerification(result.user, {
-            url: getVerificationRedirectUrl(),
-            handleCodeInApp: true
-          });
-          verificationWarning = null;
-        } catch (fallbackError) {
-          verificationWarning = smtpDispatch.error || getAuthErrorMessage(fallbackError);
-        }
+      if (!response.ok || !payload?.success) {
+        return { user: null, error: friendlyError(payload?.code, payload?.error), needsVerification: false };
       }
-      
-      return { user: result.user, error: null, needsVerification: true, verificationWarning };
+
+      setStoredSession({
+        accessToken: payload.accessToken,
+        refreshToken: payload.refreshToken,
+        expiresAt: payload.expiresAt
+      });
+
+      const nextUser = buildUserFromProfile(payload.user);
+      setUser(nextUser);
+      return { user: nextUser, error: null, needsVerification: true, verificationWarning: null };
     } catch (error) {
       console.error('Sign up error:', error);
-      return { user: null, error: getAuthErrorMessage(error), needsVerification: false };
+      return { user: null, error: 'Unable to reach the registration service. Please try again.', needsVerification: false };
     }
   };
 
-  // Sign in with Google
-  const signInWithGoogle = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      
-      // Create or update user profile in the app database.
-      const userData = {
-        email: result.user.email,
-        displayName: result.user.displayName || '',
-        photoURL: result.user.photoURL || '',
-        emailVerified: true, // Google accounts are pre-verified
-        kycStatus: 'unverified',
-        signInProvider: 'google.com'
-      };
+  // Redirects to the Google OAuth flow -- this is a full-page navigation,
+  // not a popup, so callers should not expect this promise to resolve with
+  // a user. The /auth/complete page picks the flow back up after Google
+  // redirects back and calls completeGoogleSession() below.
+  const signInWithGoogle = () => {
+    window.location.href = '/api/auth/google/start';
+    return new Promise(() => {});
+  };
 
-      await callProfileEndpoint('POST', userData);
-      
-      return { user: result.user, error: null };
+  // Called by /auth/complete after a successful Google OAuth round-trip
+  // (tokens arrive in the URL fragment, read there, passed in here).
+  const completeGoogleSession = async ({ accessToken, refreshToken, expiresAt }) => {
+    try {
+      setStoredSession({ accessToken, refreshToken, expiresAt });
+      const profilePayload = await callProfileEndpoint('GET');
+      if (!profilePayload.success || !profilePayload.profile) {
+        throw new Error('Failed to load profile after Google sign-in');
+      }
+      const nextUser = buildUserFromProfile(profilePayload.profile);
+      setUser(nextUser);
+      return { user: nextUser, error: null };
     } catch (error) {
-      console.error('Google sign in error:', error);
+      console.error('Google session completion error:', error);
       return { user: null, error: error.message };
     }
   };
 
-  // Send email verification
+  // Send/resend email verification
   const sendVerificationEmail = async () => {
     try {
-      if (!auth.currentUser) {
-        throw new Error('No authenticated user');
+      const token = await getValidAccessToken();
+      if (!token) {
+        return { error: 'No authenticated user' };
       }
 
-      await reload(auth.currentUser);
-      if (auth.currentUser.emailVerified) {
-        return { error: null };
-      }
-
-      const resendResult = await callVerificationEndpoint('/api/auth/resend-verification', {
-        email: auth.currentUser.email
+      const response = await fetch('/api/auth/resend-verification-v2', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
       });
+      const payload = await response.json().catch(() => ({}));
 
-      if (resendResult.success) {
-        return { error: null, message: resendResult.message, code: resendResult.code };
+      if (!response.ok || !payload?.success) {
+        if (payload?.code === 'RATE_LIMITED') {
+          return { error: payload.error, code: payload.code, retryAfterSeconds: payload.retryAfterSeconds || 60 };
+        }
+        return { error: payload?.error || 'Failed to send verification email' };
       }
 
-      if (resendResult.code === 'RATE_LIMITED') {
-        return {
-          error: resendResult.error,
-          code: resendResult.code,
-          retryAfterSeconds: resendResult.retryAfterSeconds || 60
-        };
-      }
-
-      await sendEmailVerification(auth.currentUser, {
-        url: getVerificationRedirectUrl(),
-        handleCodeInApp: true
-      });
-
-      return {
-        error: null,
-        message: 'Verification email sent successfully. Please check your inbox.',
-        code: 'FIREBASE_EMAIL_SENT'
-      };
+      return { error: null, message: payload.message, code: payload.code };
     } catch (error) {
       console.error('Send verification email error:', error);
-      return { error: getAuthErrorMessage(error) };
+      return { error: error.message };
     }
   };
 
   // Reload user to get updated emailVerified status
   const reloadUser = async () => {
     try {
-      if (!auth.currentUser) {
+      const profilePayload = await callProfileEndpoint('GET');
+      if (!profilePayload.success || !profilePayload.profile) {
         throw new Error('No authenticated user');
       }
-
-      await reload(auth.currentUser);
-      return { error: null, emailVerified: auth.currentUser.emailVerified };
+      const nextUser = buildUserFromProfile(profilePayload.profile);
+      setUser(nextUser);
+      return { error: null, emailVerified: nextUser.emailVerified };
     } catch (error) {
       console.error('Reload user error:', error);
       return { error: error.message };
@@ -329,33 +246,17 @@ export const AuthProvider = ({ children }) => {
   // Update user profile
   const updateProfile = async (profileData) => {
     try {
-      if (!auth.currentUser) {
-        throw new Error('No authenticated user');
-      }
+      const profilePayload = await callProfileEndpoint('PATCH', profileData);
+      const profileResponse = profilePayload.profile || {};
 
-      // Update Firebase Auth profile when public identity fields change.
-      if (profileData.displayName !== undefined || profileData.photoURL !== undefined) {
-        await firebaseUpdateProfile(auth.currentUser, {
-          ...(profileData.displayName !== undefined ? { displayName: profileData.displayName } : {}),
-          ...(profileData.photoURL !== undefined ? { photoURL: profileData.photoURL || null } : {})
-        });
-      }
-
-      const updateData = {
-        ...profileData
-      };
-
-      const profilePayload = await callProfileEndpoint('PATCH', updateData);
-      const userData = profilePayload.profile || {};
-      
-      setUser(prev => ({
+      setUser((prev) => ({
         ...prev,
         ...profileData,
-        phoneNumber: userData.phoneNumber || '',
-        location: userData.location || '',
-        bio: userData.bio || '',
-        photoURL: userData.photoURL || profileData.photoURL || '',
-        kycStatus: userData.kycStatus || 'unverified'
+        phoneNumber: profileResponse.phoneNumber || '',
+        location: profileResponse.location || '',
+        bio: profileResponse.bio || '',
+        photoURL: profileResponse.photoURL || profileData.photoURL || '',
+        kycStatus: profileResponse.kycStatus || 'unverified'
       }));
 
       return { error: null };
@@ -368,10 +269,9 @@ export const AuthProvider = ({ children }) => {
   // Sign out
   const signOut = async () => {
     try {
-      // Clear all Hub-related localStorage data to prevent stale state issues
       localStorage.removeItem('hubCurrentCommunity');
-      
-      await firebaseSignOut(auth);
+      await signOutSession();
+      setUser(null);
       return { error: null };
     } catch (error) {
       console.error('Sign out error:', error);
@@ -385,6 +285,7 @@ export const AuthProvider = ({ children }) => {
     signIn,
     signUp,
     signInWithGoogle,
+    completeGoogleSession,
     updateProfile,
     sendVerificationEmail,
     reloadUser,

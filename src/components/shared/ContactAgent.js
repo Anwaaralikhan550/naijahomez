@@ -2,7 +2,6 @@
 import React, { useState, useCallback } from 'react';
 import { Phone, Mail, MapPin, MessageCircle, Star, Share2, Loader2, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { auth } from '@/lib/firebase-client';
 import { trackClick, trackJourneyStep } from '@/lib/analytics/events';
 import toast from 'react-hot-toast';
 
@@ -148,7 +147,7 @@ const ContactAgent = ({
 
     setIsSubmitting(true);
     try {
-      const currentUser = auth.currentUser || user;
+      const currentUser = user;
       if (!currentUser) {
         toast.error('Please sign in to send a message');
         // Redirect to login page

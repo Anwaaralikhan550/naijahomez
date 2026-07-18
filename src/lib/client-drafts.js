@@ -1,4 +1,4 @@
-import { auth } from '@/lib/firebase-client';
+import { getValidAccessToken } from '@/lib/auth/client-session';
 
 function createDraftId() {
   const bytes = new Uint8Array(15);
@@ -11,9 +11,8 @@ function createDraftId() {
 }
 
 async function getAuthHeaders() {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Authentication required');
-  const token = await user.getIdToken();
+  const token = await getValidAccessToken();
+  if (!token) throw new Error('Authentication required');
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json'

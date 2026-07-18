@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { auth } from '@/lib/firebase-client';
+import { getValidAccessToken } from '@/lib/auth/client-session';
 import { uploadToS3 } from '@/utils/s3Upload';
 import { Image, X, Loader2, MapPin, Home, ArrowLeft, Save, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -41,7 +41,7 @@ function EditPropertyPage() {
 
       try {
         setLoading(true);
-        const token = await auth.currentUser?.getIdToken();
+        const token = await getValidAccessToken();
 
         const response = await fetch(`/api/properties/${propertyId}`, {
           headers: {
@@ -160,7 +160,7 @@ function EditPropertyPage() {
 
     try {
       setSaving(true);
-      const token = await auth.currentUser?.getIdToken();
+      const token = await getValidAccessToken();
 
       const updateData = {
         ...formData,
@@ -200,7 +200,7 @@ function EditPropertyPage() {
 
     try {
       setDeleting(true);
-      const token = await auth.currentUser?.getIdToken();
+      const token = await getValidAccessToken();
 
       const response = await fetch(`/api/properties/${propertyId}`, {
         method: 'DELETE',
