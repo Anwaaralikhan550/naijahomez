@@ -5,6 +5,13 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const {
+  getPostgresDocumentStore,
+  shouldUsePostgresDocumentStore
+} = require('./db/postgres-document-store.cjs');
 
 let adminApp;
 
@@ -57,6 +64,10 @@ export function initAdmin() {
 
 // Get Admin Firestore (for server-side data operations)
 export function getAdminFirestore() {
+  if (shouldUsePostgresDocumentStore()) {
+    return getPostgresDocumentStore();
+  }
+
   if (!adminApp) {
     adminApp = initAdmin();
   }

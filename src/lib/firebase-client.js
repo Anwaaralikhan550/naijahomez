@@ -1,9 +1,9 @@
 // Firebase Client SDK - Client-side operations only
-// Used for: Authentication, real-time listeners, client-side data operations
+// Used for: Authentication and Firebase Storage only
 // NOT used for: Server-side API operations (that's handled by Admin SDK)
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -22,16 +22,13 @@ if (getApps().length === 0) {
   app = getApps()[0];
 }
 
-// Initialize Firestore
-export const db = getFirestore(app);
-
 // Initialize Auth (for getting current user token)
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 // Connect to emulators in development (disabled for now)
 if (process.env.NODE_ENV === 'development' && process.env.USE_FIREBASE_EMULATOR === 'true') {
   try {
-    connectFirestoreEmulator(db, 'localhost', 8080);
     connectAuthEmulator(auth, 'http://localhost:9099');
   } catch (error) {
     console.log('Firebase emulators already connected or not available:', error.message);

@@ -11,10 +11,12 @@ import {
   sendEmailVerification,
   reload
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase-client';
+import { auth } from '@/lib/firebase-client';
 
 const AuthContext = createContext({});
+const STRONG_PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+
+const isStrongPassword = (password) => STRONG_PASSWORD_REGEX.test(String(password || ''));
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -22,34 +24,28 @@ export const AuthProvider = ({ children }) => {
 
   // Helper function to determine if email verification should be required
   const shouldRequireEmailVerification = (firebaseUser, userData = {}) => {
-    // Google sign-in users are already verified by Google
-    if (firebaseUser.providerData.some(provider => provider.providerId === 'google.com')) {
-      return false;
+    const providerId = userData.signInProvider || firebaseUser?.providerData?.[0]?.providerId || 'email';
+    return providerId === 'password' || providerId === 'email';
+  };
+
+  const callProfileEndpoint = async (method = 'GET', body = null) => {
+    if (!auth.currentUser) return { success: false, profile: null };
+
+    const token = await auth.currentUser.getIdToken();
+    const response = await fetch('/api/auth/profile', {
+      method,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        Authorization: `Bearer ${token}`
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.success === false) {
+      throw new Error(payload?.error || 'Failed to load user profile');
     }
-    
-    // Check if user explicitly marked as not requiring verification (e.g., by migration script)
-    if (userData.requiresEmailVerification === false) {
-      return false;
-    }
-    
-    // Users created before email verification was implemented (multiple fallback dates)
-    const createdAt = userData.createdAt?.toDate?.() || 
-                     (firebaseUser.metadata.creationTime ? new Date(firebaseUser.metadata.creationTime) : null);
-    
-    const verificationCutoffDate = new Date('2025-08-27'); // Today's date - adjust as needed
-    
-    if (createdAt && createdAt < verificationCutoffDate) {
-      return false; // Legacy users don't need verification
-    }
-    
-    // If we can't determine creation date, be lenient for existing users
-    if (!createdAt) {
-      console.warn('Could not determine user creation date, assuming legacy user');
-      return false;
-    }
-    
-    // New email/password users need verification
-    return !firebaseUser.emailVerified;
+    return payload;
   };
 
   // Listen to Firebase auth state changes
@@ -57,9 +53,9 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
-          // Get additional user data from Firestore
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          const userData = userDoc.data() || {};
+          // Get additional user data from the app database.
+          const profilePayload = await callProfileEndpoint('GET');
+          const userData = profilePayload.profile || {};
           
           // Determine effective email verification status
           const requiresVerification = shouldRequireEmailVerification(firebaseUser, userData);
@@ -76,6 +72,7 @@ export const AuthProvider = ({ children }) => {
             phoneNumber: userData.phoneNumber || '',
             location: userData.location || '',
             bio: userData.bio || '',
+            kycStatus: userData.kycStatus || 'unverified',
             metadata: firebaseUser.metadata
           };
           
@@ -92,7 +89,8 @@ export const AuthProvider = ({ children }) => {
             photoURL: firebaseUser.photoURL || '',
             emailVerified: firebaseUser.emailVerified || !requiresVerification,
             requiresEmailVerification: requiresVerification,
-            signInProvider: firebaseUser.providerData[0]?.providerId || 'email'
+            signInProvider: firebaseUser.providerData[0]?.providerId || 'email',
+            kycStatus: 'unverified'
           });
         }
       } else {
@@ -131,9 +129,55 @@ export const AuthProvider = ({ children }) => {
       case 'auth/email-already-in-use':
         return 'An account with this email already exists.';
       case 'auth/weak-password':
-        return 'Password is too weak. Please use at least 6 characters.';
+        return 'Password must be at least 8 characters and include 1 uppercase letter, 1 number, and 1 special character.';
       default:
         return 'An error occurred. Please try again.';
+    }
+  };
+
+  const getVerificationRedirectUrl = () =>
+    `${window.location.origin}/verify-email?continueUrl=${encodeURIComponent('/dashboard')}`;
+
+  const callVerificationEndpoint = async (path, body = {}) => {
+    if (!auth.currentUser) {
+      return { success: false, error: 'No authenticated user', code: 'NO_AUTH_USER' };
+    }
+
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      const message = payload?.message || payload?.error || 'Verification request failed';
+
+      if (!response.ok || payload?.success === false) {
+        return {
+          success: false,
+          error: message,
+          code: payload?.code || `HTTP_${response.status}`,
+          retryAfterSeconds: payload?.retryAfterSeconds || 0,
+          manualFallback: payload?.manualFallback || null
+        };
+      }
+
+      return {
+        success: true,
+        message,
+        code: payload?.code || null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Unable to reach verification service. Please try again.',
+        code: 'VERIFICATION_SERVICE_UNREACHABLE'
+      };
     }
   };
 
@@ -151,25 +195,47 @@ export const AuthProvider = ({ children }) => {
   // Sign up with email/password
   const signUp = async (email, password, displayName) => {
     try {
+      if (!isStrongPassword(password)) {
+        return {
+          user: null,
+          error: 'Password must be at least 8 characters and include 1 uppercase letter, 1 number, and 1 special character.',
+          needsVerification: false
+        };
+      }
+
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Send email verification
-      await sendEmailVerification(result.user, {
-        url: `${window.location.origin}/verify-email?continueUrl=${encodeURIComponent('/dashboard')}`,
-        handleCodeInApp: true
-      });
-      
-      // Create user document in Firestore
-      await setDoc(doc(db, 'users', result.user.uid), {
+      // Create user profile in the app database.
+      await callProfileEndpoint('POST', {
         email: result.user.email,
         displayName: displayName || '',
         photoURL: '',
         emailVerified: false,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        kycStatus: 'unverified',
+        signInProvider: 'password',
       });
+
+      let verificationWarning = null;
+
+      // Prefer server-side SMTP flow (with fallback logging)
+      const smtpDispatch = await callVerificationEndpoint('/api/auth/send-verification', {
+        email: result.user.email
+      });
+
+      // Fallback provider if SMTP pipeline is unavailable
+      if (!smtpDispatch.success) {
+        try {
+          await sendEmailVerification(result.user, {
+            url: getVerificationRedirectUrl(),
+            handleCodeInApp: true
+          });
+          verificationWarning = null;
+        } catch (fallbackError) {
+          verificationWarning = smtpDispatch.error || getAuthErrorMessage(fallbackError);
+        }
+      }
       
-      return { user: result.user, error: null, needsVerification: true };
+      return { user: result.user, error: null, needsVerification: true, verificationWarning };
     } catch (error) {
       console.error('Sign up error:', error);
       return { user: null, error: getAuthErrorMessage(error), needsVerification: false };
@@ -182,24 +248,17 @@ export const AuthProvider = ({ children }) => {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       
-      // Create or update user document in Firestore
-      const userRef = doc(db, 'users', result.user.uid);
-      const userSnap = await getDoc(userRef);
-      
+      // Create or update user profile in the app database.
       const userData = {
         email: result.user.email,
         displayName: result.user.displayName || '',
         photoURL: result.user.photoURL || '',
         emailVerified: true, // Google accounts are pre-verified
-        signInProvider: 'google.com',
-        updatedAt: new Date()
+        kycStatus: 'unverified',
+        signInProvider: 'google.com'
       };
-      
-      if (!userSnap.exists()) {
-        userData.createdAt = new Date();
-      }
-      
-      await setDoc(userRef, userData, { merge: true });
+
+      await callProfileEndpoint('POST', userData);
       
       return { user: result.user, error: null };
     } catch (error) {
@@ -215,15 +274,40 @@ export const AuthProvider = ({ children }) => {
         throw new Error('No authenticated user');
       }
 
+      await reload(auth.currentUser);
+      if (auth.currentUser.emailVerified) {
+        return { error: null };
+      }
+
+      const resendResult = await callVerificationEndpoint('/api/auth/resend-verification', {
+        email: auth.currentUser.email
+      });
+
+      if (resendResult.success) {
+        return { error: null, message: resendResult.message, code: resendResult.code };
+      }
+
+      if (resendResult.code === 'RATE_LIMITED') {
+        return {
+          error: resendResult.error,
+          code: resendResult.code,
+          retryAfterSeconds: resendResult.retryAfterSeconds || 60
+        };
+      }
+
       await sendEmailVerification(auth.currentUser, {
-        url: `${window.location.origin}/verify-email?continueUrl=${encodeURIComponent('/dashboard')}`,
+        url: getVerificationRedirectUrl(),
         handleCodeInApp: true
       });
 
-      return { error: null };
+      return {
+        error: null,
+        message: 'Verification email sent successfully. Please check your inbox.',
+        code: 'FIREBASE_EMAIL_SENT'
+      };
     } catch (error) {
       console.error('Send verification email error:', error);
-      return { error: error.message };
+      return { error: getAuthErrorMessage(error) };
     }
   };
 
@@ -249,32 +333,29 @@ export const AuthProvider = ({ children }) => {
         throw new Error('No authenticated user');
       }
 
-      // Update Firebase Auth profile if displayName changed
-      if (profileData.displayName !== undefined) {
+      // Update Firebase Auth profile when public identity fields change.
+      if (profileData.displayName !== undefined || profileData.photoURL !== undefined) {
         await firebaseUpdateProfile(auth.currentUser, {
-          displayName: profileData.displayName
+          ...(profileData.displayName !== undefined ? { displayName: profileData.displayName } : {}),
+          ...(profileData.photoURL !== undefined ? { photoURL: profileData.photoURL || null } : {})
         });
       }
 
-      // Update Firestore user document
-      const userRef = doc(db, 'users', auth.currentUser.uid);
       const updateData = {
-        ...profileData,
-        updatedAt: new Date()
+        ...profileData
       };
 
-      await updateDoc(userRef, updateData);
-
-      // Trigger a re-fetch of user data by forcing auth state refresh
-      const updatedUserDoc = await getDoc(userRef);
-      const userData = updatedUserDoc.data() || {};
+      const profilePayload = await callProfileEndpoint('PATCH', updateData);
+      const userData = profilePayload.profile || {};
       
       setUser(prev => ({
         ...prev,
         ...profileData,
         phoneNumber: userData.phoneNumber || '',
         location: userData.location || '',
-        bio: userData.bio || ''
+        bio: userData.bio || '',
+        photoURL: userData.photoURL || profileData.photoURL || '',
+        kycStatus: userData.kycStatus || 'unverified'
       }));
 
       return { error: null };

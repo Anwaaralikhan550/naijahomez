@@ -1,16 +1,116 @@
 // This file is for server-side use only (API routes)
 // For client-side usage, use API endpoints instead
 
-import { getFirestore } from 'firebase-admin/firestore';
-import { initAdmin } from './firebase-admin';
+import { getAdminFirestore, initAdmin } from './firebase-admin';
 
 // Initialize admin SDK
 initAdmin();
 
+let hubNotificationsCompositeIndexMissing = false;
+
 // Helper to get Firestore instance
 const getDb = () => {
-  return getFirestore();
+  return getAdminFirestore();
 };
+
+function normalizeImageList(value) {
+  try {
+    const rawList = Array.isArray(value)
+      ? value
+      : value !== undefined && value !== null
+        ? [value]
+        : [];
+
+    return [...new Set(
+      rawList
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+    )];
+  } catch (error) {
+    console.error('Error normalizing image list:', error);
+    return [];
+  }
+}
+
+function normalizeCleanupText(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeCleanupPrice(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toFixed(2);
+  }
+
+  if (typeof value === 'string') {
+    const numeric = Number(value.replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(numeric) ? numeric.toFixed(2) : '';
+  }
+
+  return '';
+}
+
+function normalizeCleanupLocation(value) {
+  if (typeof value === 'string') {
+    return normalizeCleanupText(value);
+  }
+
+  if (value && typeof value === 'object') {
+    return [
+      value.area,
+      value.city,
+      value.state,
+      value.country,
+      value.address,
+      value.name,
+    ]
+      .map((segment) => normalizeCleanupText(segment))
+      .filter(Boolean)
+      .join(' | ');
+  }
+
+  return '';
+}
+
+export function normalizeImageFields(data = {}) {
+  try {
+    const hasCanonicalImages = Object.prototype.hasOwnProperty.call(data, 'imageUrls');
+    const hasLegacyImages = Object.prototype.hasOwnProperty.call(data, 'images');
+    const sourceImages = hasCanonicalImages ? data.imageUrls : data.images;
+    const normalizedImages = normalizeImageList(sourceImages);
+    const nextData = { ...data };
+
+    if (hasCanonicalImages || hasLegacyImages) {
+      nextData.imageUrls = normalizedImages;
+      nextData.images = normalizedImages;
+    }
+
+    return nextData;
+  } catch (error) {
+    console.error('Error normalizing image fields:', error);
+    return { ...data };
+  }
+}
+
+export function getCanonicalImageCount(data = {}) {
+  const source = data.imageUrls ?? data.images ?? data.photos ?? data.pictures;
+  return normalizeImageList(source).length;
+}
+
+export function getNormalizedCleanupDuplicateKey(data = {}) {
+  const title = normalizeCleanupText(data.title);
+  const price = normalizeCleanupPrice(data.price);
+  const location = normalizeCleanupLocation(data.location || data.city || data.address);
+
+  if (!title || !price || !location) {
+    return '';
+  }
+
+  return `${title}::${price}::${location}`;
+}
 
 // Access Codes
 export const createAccessCode = async (codeData) => {
@@ -87,12 +187,13 @@ export const validateAccessCode = async (code, communityId) => {
 export const createDocument = async (collectionName, data) => {
   try {
     const db = getDb();
+    const normalizedData = normalizeImageFields(data);
     const docRef = await db.collection(collectionName).add({
-      ...data,
+      ...normalizedData,
       createdAt: new Date(),
       updatedAt: new Date()
     });
-    return { id: docRef.id, ...data };
+    return { id: docRef.id, ...normalizedData };
   } catch (error) {
     console.error(`Error creating document in ${collectionName}:`, error);
     throw error;
@@ -108,7 +209,7 @@ export const getDocument = async (collectionName, docId) => {
       return null;
     }
     
-    return { id: doc.id, ...doc.data() };
+    return { id: doc.id, ...normalizeImageFields(doc.data()) };
   } catch (error) {
     console.error(`Error getting document from ${collectionName}:`, error);
     throw error;
@@ -138,7 +239,7 @@ export const getDocuments = async (collectionName, filters = {}, sorting = {}, l
     const snapshot = await queryRef.get();
     
     return snapshot.docs.map(doc => {
-      const data = doc.data();
+      const data = normalizeImageFields({ ...doc.data() });
       
       // Convert Firestore Timestamps to ISO strings
       Object.keys(data).forEach(key => {
@@ -161,11 +262,12 @@ export const getDocuments = async (collectionName, filters = {}, sorting = {}, l
 export const updateDocument = async (collectionName, docId, data) => {
   try {
     const db = getDb();
+    const normalizedData = normalizeImageFields(data);
     await db.collection(collectionName).doc(docId).update({
-      ...data,
+      ...normalizedData,
       updatedAt: new Date()
     });
-    return { id: docId, ...data };
+    return { id: docId, ...normalizedData };
   } catch (error) {
     console.error(`Error updating document in ${collectionName}:`, error);
     throw error;
@@ -248,6 +350,35 @@ export const getMarketplaceItems = async (communityId) => {
   return getDocuments('hubMarketplace', { communityId, status: 'active' }, { field: 'createdAt', direction: 'desc' });
 };
 
+export const isUserActiveCommunityMember = async (userId, communityId) => {
+  try {
+    const db = getDb();
+
+    const activeFlagSnapshot = await db.collection('hubMembers')
+      .where('userId', '==', userId)
+      .where('communityId', '==', communityId)
+      .where('isActive', '==', true)
+      .limit(1)
+      .get();
+
+    if (!activeFlagSnapshot.empty) {
+      return true;
+    }
+
+    const activeStatusSnapshot = await db.collection('hubMembers')
+      .where('userId', '==', userId)
+      .where('communityId', '==', communityId)
+      .where('status', '==', 'active')
+      .limit(1)
+      .get();
+
+    return !activeStatusSnapshot.empty;
+  } catch (error) {
+    console.error('Error checking active community membership:', error);
+    throw error;
+  }
+};
+
 // Notifications
 export const createNotification = async (notificationData) => {
   try {
@@ -305,10 +436,21 @@ export const getNotifications = async (communityId, userId = null) => {
     if (userId) {
       filters.userId = userId;
     }
+
+    if (hubNotificationsCompositeIndexMissing) {
+      const docs = await getDocuments('hubNotifications', filters);
+      return docs.sort((a, b) => {
+        const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime;
+      });
+    }
+
     return await getDocuments('hubNotifications', filters, { field: 'createdAt', direction: 'desc' });
   } catch (error) {
     // Fallback: if composite index is missing, query without orderBy and sort client-side
     if (error.code === 9 || error.message?.includes('FAILED_PRECONDITION') || error.message?.includes('requires an index')) {
+      hubNotificationsCompositeIndexMissing = true;
       console.warn('Notifications composite index missing, falling back to client-side sort');
       const filters = { communityId };
       if (userId) {
@@ -316,8 +458,8 @@ export const getNotifications = async (communityId, userId = null) => {
       }
       const docs = await getDocuments('hubNotifications', filters);
       return docs.sort((a, b) => {
-        const aTime = a.createdAt?.toMillis?.() || a.createdAt?.getTime?.() || 0;
-        const bTime = b.createdAt?.toMillis?.() || b.createdAt?.getTime?.() || 0;
+        const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime;
       });
     }
@@ -533,10 +675,12 @@ export const getPublicCommunities = async (limit = 5) => {
 export const createHubMember = async (memberData) => {
   try {
     const db = getDb();
+    const resolvedStatus = memberData.status || 'active';
     const docRef = await db.collection('hubMembers').add({
       ...memberData,
       joinedAt: memberData.joinedAt || new Date(),
-      status: memberData.status || 'active'
+      status: resolvedStatus,
+      isActive: memberData.isActive ?? (resolvedStatus === 'active')
     });
     
     // Only increment community member count if this is NOT the initial creator

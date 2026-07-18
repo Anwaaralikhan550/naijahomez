@@ -62,7 +62,9 @@ export async function verifyAuth(request) {
         uid: decodedToken.uid,
         email: decodedToken.email,
         emailVerified: decodedToken.email_verified,
-        name: decodedToken.name
+        name: decodedToken.name,
+        isAdmin: decodedToken.admin === true || decodedToken.isAdmin === true,
+        role: decodedToken.role || null
       }
     };
 
@@ -124,6 +126,17 @@ export async function isAdmin(request) {
   }
 
   try {
+    if (authResult.user?.isAdmin === true || authResult.user?.role === 'admin') {
+      return {
+        success: true,
+        userId: authResult.userId,
+        user: {
+          ...authResult.user,
+          isAdmin: true
+        }
+      };
+    }
+
     // Check user's admin status in Firestore
     const db = getAdminFirestore();
     const userDoc = await db.collection('users').doc(authResult.userId).get();
