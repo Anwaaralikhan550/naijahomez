@@ -1,10 +1,10 @@
-const crypto = require('crypto');
 const { getAutomationFirestore } = require('../automation/admin-firestore');
+const blogPostRepository = require('../db/blog-post-repository.cjs');
+const contentJobRepository = require('../db/content-job-repository.cjs');
 
 const LISTING_COLLECTIONS = ['properties', 'marketplace'];
 const PRIORITY_MARKETS = ['lagos', 'abuja', 'port harcourt'];
 const MAX_JOB_ATTEMPTS = 3;
-const STALE_PROCESSING_MS = 10 * 60 * 1000;
 const MARKET_TRENDS_TTL_MS = 6 * 60 * 60 * 1000;
 
 function getDb() {
@@ -187,18 +187,6 @@ function buildSourceReferencesForPrompt(sourceReferences = []) {
     .join('\n');
 }
 
-async function ensureUniqueSlug(db, baseSlug, existingPostId = null) {
-  const root = slugify(baseSlug);
-  let candidate = root;
-  for (let i = 0; i < 20; i += 1) {
-    const snap = await db.collection('blogPosts').where('slug', '==', candidate).limit(2).get();
-    const conflict = snap.docs.find((doc) => doc.id !== existingPostId);
-    if (!conflict) return candidate;
-    candidate = `${root}-${i + 2}`;
-  }
-  return `${root}-${crypto.randomBytes(3).toString('hex')}`;
-}
-
 function parseGeminiJson(text) {
   const raw = String(text || '')
     .trim()
@@ -285,39 +273,25 @@ async function generateBlogDraft({ topic, promptType = 'property_guide', marketC
 }
 
 async function listPublishedBlogPosts({ limit = 24 } = {}) {
-  const db = getDb();
-  const snap = await db.collection('blogPosts')
-    .where('status', '==', 'published')
-    .limit(100)
-    .get();
-  return snap.docs
-    .map(serializeDoc)
-    .sort((a, b) => (Date.parse(b.publishedAt || b.updatedAt || '') || 0) - (Date.parse(a.publishedAt || a.updatedAt || '') || 0))
-    .slice(0, Math.max(1, Math.min(Number(limit) || 24, 100)));
+  return blogPostRepository.listPublishedBlogPosts({ limit });
 }
 
 async function getPublishedBlogPostBySlug(slug) {
-  const db = getDb();
-  const snap = await db.collection('blogPosts')
-    .where('slug', '==', slugify(slug))
-    .where('status', '==', 'published')
-    .limit(1)
-    .get();
-  return snap.empty ? null : serializeDoc(snap.docs[0]);
+  return blogPostRepository.getPublishedBlogPostBySlug(slug);
 }
 
 async function listAdminContent({ limit = 50 } = {}) {
   const db = getDb();
-  const [postsSnap, jobsSnap, socialSnap, trendDoc] = await Promise.all([
-    db.collection('blogPosts').orderBy('updatedAt', 'desc').limit(limit).get(),
-    db.collection('contentJobs').orderBy('createdAt', 'desc').limit(25).get(),
+  const [posts, jobs, socialSnap, trendDoc] = await Promise.all([
+    blogPostRepository.listRecentBlogPosts({ limit }),
+    contentJobRepository.listRecentContentJobs({ limit: 25 }),
     db.collection('socialShareQueue').orderBy('createdAt', 'desc').limit(25).get(),
     db.collection('marketTrends').doc('latest').get()
   ]);
 
   return {
-    posts: postsSnap.docs.map(serializeDoc),
-    jobs: jobsSnap.docs.map(serializeDoc),
+    posts,
+    jobs,
     socialQueue: socialSnap.docs.map(serializeDoc),
     trend: serializeDoc(trendDoc)
   };
@@ -331,22 +305,14 @@ async function createContentJob({ topic, promptType = 'property_guide', schedule
     throw error;
   }
 
-  const db = getDb();
-  const now = nowDate();
-  const nextRunAt = toDate(scheduledFor) || now;
-  const ref = db.collection('contentJobs').doc();
-  await ref.set({
+  const nextRunAt = toDate(scheduledFor) || nowDate();
+  return contentJobRepository.createContentJob({
     topic: cleanTopic,
     promptType: normalizeText(promptType) || 'property_guide',
-    status: 'pending',
-    attempts: 0,
-    sourceReferences: sanitizeSourceReferences(sourceReferences),
     nextRunAt,
-    createdBy,
-    createdAt: now,
-    updatedAt: now
+    sourceReferences: sanitizeSourceReferences(sourceReferences),
+    createdBy
   });
-  return serializeDoc(await ref.get());
 }
 
 async function updateBlogPost({ postId, updates = {}, actorId = 'admin' }) {
@@ -356,18 +322,15 @@ async function updateBlogPost({ postId, updates = {}, actorId = 'admin' }) {
     throw error;
   }
 
-  const db = getDb();
-  const ref = db.collection('blogPosts').doc(postId);
-  const doc = await ref.get();
-  if (!doc.exists) {
+  const current = await blogPostRepository.getBlogPostById(postId);
+  if (!current) {
     const error = new Error('Blog post not found.');
     error.status = 404;
     throw error;
   }
 
-  const current = doc.data() || {};
   const now = nowDate();
-  const patch = { updatedAt: now, updatedBy: actorId };
+  const patch = { updatedBy: actorId };
 
   if (Object.prototype.hasOwnProperty.call(updates, 'title')) patch.title = normalizeText(updates.title).slice(0, 140);
   if (Object.prototype.hasOwnProperty.call(updates, 'summary')) patch.summary = normalizeText(updates.summary).slice(0, 320);
@@ -391,13 +354,12 @@ async function updateBlogPost({ postId, updates = {}, actorId = 'admin' }) {
   }
 
   if (Object.prototype.hasOwnProperty.call(updates, 'slug')) {
-    patch.slug = await ensureUniqueSlug(db, updates.slug || patch.title || current.title, postId);
+    patch.slug = await blogPostRepository.ensureUniqueSlug(updates.slug || patch.title || current.title, postId);
   } else if (patch.title && patch.title !== current.title) {
-    patch.slug = await ensureUniqueSlug(db, current.slug || patch.title, postId);
+    patch.slug = await blogPostRepository.ensureUniqueSlug(current.slug || patch.title, postId);
   }
 
-  await ref.set(patch, { merge: true });
-  return serializeDoc(await ref.get());
+  return blogPostRepository.updateBlogPost(postId, patch);
 }
 
 async function collectMarketTrendData() {
@@ -509,111 +471,50 @@ async function getMarketContextForPrompt() {
   return trend?.locations || trend?.trend?.locations || [];
 }
 
-async function lockNextContentJob(db) {
-  const now = nowDate();
-  const staleBefore = new Date(now.getTime() - STALE_PROCESSING_MS);
-
-  const pendingSnap = await db.collection('contentJobs')
-    .where('status', '==', 'pending')
-    .limit(25)
-    .get();
-
-  let candidates = pendingSnap.docs.filter((doc) => {
-    const data = doc.data() || {};
-    return (data.attempts || 0) < MAX_JOB_ATTEMPTS && (!toDate(data.nextRunAt) || toDate(data.nextRunAt) <= now);
-  }).sort((a, b) => (toDate(a.data()?.nextRunAt)?.getTime() || 0) - (toDate(b.data()?.nextRunAt)?.getTime() || 0));
-
-  if (!candidates.length) {
-    const staleSnap = await db.collection('contentJobs')
-      .where('status', '==', 'processing')
-      .limit(25)
-      .get();
-    candidates = staleSnap.docs.filter((doc) => {
-      const lockedAt = toDate(doc.data()?.lockedAt);
-      return lockedAt && lockedAt <= staleBefore;
-    }).slice(0, 5);
-  }
-
-  if (!candidates.length) return null;
-  const ref = candidates[0].ref;
-
-  return db.runTransaction(async (transaction) => {
-    const fresh = await transaction.get(ref);
-    if (!fresh.exists) return null;
-    const data = fresh.data() || {};
-    const attempts = Number(data.attempts || 0);
-    const lockedAt = toDate(data.lockedAt);
-    const isPendingDue = data.status === 'pending' && (!toDate(data.nextRunAt) || toDate(data.nextRunAt) <= now);
-    const isStale = data.status === 'processing' && lockedAt && lockedAt <= staleBefore;
-    if ((!isPendingDue && !isStale) || attempts >= MAX_JOB_ATTEMPTS) return null;
-
-    transaction.update(ref, {
-      status: 'processing',
-      lockedAt: now,
-      attempts: attempts + 1,
-      updatedAt: now
-    });
-
-    return { id: fresh.id, ref, data: { ...data, attempts: attempts + 1 } };
-  });
-}
-
 async function processNextContentJob({ dryRun = false } = {}) {
-  const db = getDb();
-  const job = await lockNextContentJob(db);
+  const job = await contentJobRepository.lockNextContentJob();
   if (!job) return { processed: false, reason: 'no_due_job' };
 
   try {
     const marketContext = await getMarketContextForPrompt();
     const draft = await generateBlogDraft({
-      topic: job.data.topic,
-      promptType: job.data.promptType,
+      topic: job.topic,
+      promptType: job.promptType,
       marketContext,
-      sourceReferences: job.data.sourceReferences || []
+      sourceReferences: job.sourceReferences || []
     });
 
-    const now = nowDate();
-    const slug = await ensureUniqueSlug(db, draft.slug || draft.title);
-    const postRef = db.collection('blogPosts').doc();
+    const slug = await blogPostRepository.ensureUniqueSlug(draft.slug || draft.title);
     const postData = {
       ...draft,
       slug,
-      topic: job.data.topic,
-      promptType: job.data.promptType || 'property_guide',
+      topic: job.topic,
+      promptType: job.promptType || 'property_guide',
       sourceJobId: job.id,
       status: 'draft',
       authorType: 'ai_assisted',
-      sourceReferences: sanitizeSourceReferences(draft.sourceReferences || job.data.sourceReferences || []),
-      createdBy: job.data.createdBy || 'system',
-      createdAt: now,
-      updatedAt: now
+      sourceReferences: sanitizeSourceReferences(draft.sourceReferences || job.sourceReferences || []),
+      createdBy: job.createdBy || 'system'
     };
 
+    let postId = null;
     if (!dryRun) {
-      await postRef.set(postData);
-      await job.ref.update({
-        status: 'completed',
-        blogPostId: postRef.id,
-        completedAt: now,
-        updatedAt: now,
-        lastError: null
-      });
+      const post = await blogPostRepository.createBlogPost(postData);
+      postId = post.id;
+      await contentJobRepository.markContentJobCompleted(job.id, { blogPostId: postId });
     } else {
-      await job.ref.update({ status: 'pending', lockedAt: null, updatedAt: now });
+      await contentJobRepository.resetContentJobToPending(job.id);
     }
 
-    return { processed: true, type: 'content_job', jobId: job.id, postId: dryRun ? null : postRef.id, draft, dryRun };
+    return { processed: true, type: 'content_job', jobId: job.id, postId, draft, dryRun };
   } catch (error) {
     const now = nowDate();
-    const attempts = Number(job.data.attempts || 1);
+    const attempts = Number(job.attempts || 1);
     const exhausted = attempts >= MAX_JOB_ATTEMPTS;
-    await job.ref.update({
-      status: exhausted ? 'failed' : 'pending',
-      lockedAt: null,
+    await contentJobRepository.markContentJobFailed(job.id, {
       lastError: error.message,
-      failedAt: exhausted ? now : null,
-      nextRunAt: new Date(now.getTime() + Math.min(60, attempts * 15) * 60 * 1000),
-      updatedAt: now
+      exhausted,
+      nextRunAt: new Date(now.getTime() + Math.min(60, attempts * 15) * 60 * 1000)
     });
     return { processed: true, type: 'content_job_failed', jobId: job.id, failed: true, error: error.message, exhausted };
   }
@@ -636,15 +537,13 @@ function socialTextForPost(post) {
 
 async function queueSocialSharesForPost({ postId, scheduledFor = null, actorId = 'admin' }) {
   const db = getDb();
-  const postRef = db.collection('blogPosts').doc(postId);
-  const postDoc = await postRef.get();
-  if (!postDoc.exists) {
+  const post = await blogPostRepository.getBlogPostById(postId);
+  if (!post) {
     const error = new Error('Blog post not found.');
     error.status = 404;
     throw error;
   }
 
-  const post = postDoc.data() || {};
   if (post.status !== 'published' && post.status !== 'scheduled') {
     const error = new Error('Only published or scheduled posts can be queued for social sharing.');
     error.status = 400;
@@ -681,7 +580,7 @@ async function queueSocialSharesForPost({ postId, scheduledFor = null, actorId =
     queued.push(serializeDoc(await ref.get()));
   }));
 
-  await postRef.set({ socialQueued: queued.length > 0, updatedAt: now }, { merge: true });
+  await blogPostRepository.updateBlogPost(postId, { socialQueued: queued.length > 0 });
   return queued;
 }
 
