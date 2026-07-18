@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ChevronDown, 
   Building2, 
@@ -17,13 +17,7 @@ const CommunitySwitcher = ({ currentCommunity, onCommunityChange, onClose }) => 
   const [userCommunities, setUserCommunities] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      loadUserCommunities();
-    }
-  }, [user]);
-
-  const loadUserCommunities = async () => {
+  const loadUserCommunities = useCallback(async () => {
     try {
       setLoading(true);
       // Use API endpoint instead of direct import
@@ -57,7 +51,13 @@ const CommunitySwitcher = ({ currentCommunity, onCommunityChange, onClose }) => 
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (user) {
+      loadUserCommunities();
+    }
+  }, [user, loadUserCommunities]);
 
   const handleCommunitySelect = (membership) => {
     if (membership.communityId === currentCommunity) {

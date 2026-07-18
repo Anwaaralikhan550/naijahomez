@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Send, 
   Users, 
@@ -50,14 +50,7 @@ const NotificationSender = ({ communityId }) => {
     { value: 'high', label: 'High', color: 'text-red-600' }
   ];
 
-  useEffect(() => {
-    if (communityId) {
-      loadMembers();
-      loadSentNotifications();
-    }
-  }, [communityId]);
-
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/admin/members?communityId=${communityId}`);
       const result = await response.json();
@@ -68,9 +61,9 @@ const NotificationSender = ({ communityId }) => {
     } catch (error) {
       console.error('Error loading members:', error);
     }
-  };
+  }, [communityId]);
 
-  const loadSentNotifications = async () => {
+  const loadSentNotifications = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/notifications?communityId=${communityId}&admin=true`);
       const result = await response.json();
@@ -81,7 +74,14 @@ const NotificationSender = ({ communityId }) => {
     } catch (error) {
       console.error('Error loading notifications:', error);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadMembers();
+      loadSentNotifications();
+    }
+  }, [communityId, loadMembers, loadSentNotifications]);
 
   const handleInputChange = (e) => {
     setFormData({

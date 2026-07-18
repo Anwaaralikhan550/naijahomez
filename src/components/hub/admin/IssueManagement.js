@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   MessageCircle, 
   AlertTriangle, 
@@ -32,13 +32,7 @@ const IssueManagement = ({ communityId }) => {
     adminNotes: ''
   });
 
-  useEffect(() => {
-    if (communityId) {
-      loadIssues();
-    }
-  }, [communityId]);
-
-  const loadIssues = async () => {
+  const loadIssues = useCallback(async () => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`/api/hub/issues?communityId=${communityId}&admin=true`);
@@ -52,7 +46,13 @@ const IssueManagement = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadIssues();
+    }
+  }, [communityId, loadIssues]);
 
   const updateIssueStatus = async (issueId, status, adminNotes = '') => {
     try {

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   MessageSquare,
   Plus,
@@ -40,7 +40,7 @@ const CommunityForum = ({ communityId }) => {
   });
   const [replyContent, setReplyContent] = useState('');
 
-  const defaultCategories = [
+  const defaultCategories = useMemo(() => [
     {
       id: 'general',
       name: 'General Discussion',
@@ -83,18 +83,9 @@ const CommunityForum = ({ communityId }) => {
       icon: '🛡️',
       color: 'bg-orange-100 text-orange-800'
     }
-  ];
+  ], []);
 
-  useEffect(() => {
-    if (communityId) {
-      loadCategories();
-      if (selectedCategory) {
-        loadDiscussions(selectedCategory.id);
-      }
-    }
-  }, [communityId, selectedCategory?.id]);
-
-  const loadCategories = async () => {
+  const loadCategories = useCallback(async () => {
     try {
       setLoading(true);
       // For now, use default categories. In production, these could be customizable
@@ -104,9 +95,9 @@ const CommunityForum = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [defaultCategories]);
 
-  const loadDiscussions = async (categoryId) => {
+  const loadDiscussions = useCallback(async (categoryId) => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`/api/hub/forum/discussions?communityId=${communityId}&category=${categoryId}`);
@@ -120,7 +111,16 @@ const CommunityForum = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadCategories();
+      if (selectedCategory) {
+        loadDiscussions(selectedCategory.id);
+      }
+    }
+  }, [communityId, loadCategories, loadDiscussions, selectedCategory]);
 
   const createNewTopic = async (e) => {
     e.preventDefault();

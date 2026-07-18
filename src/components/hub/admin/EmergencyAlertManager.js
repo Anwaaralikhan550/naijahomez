@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   AlertTriangle,
   Plus,
@@ -40,13 +40,7 @@ const EmergencyAlertManager = ({ communityId }) => {
     { value: 'critical', label: 'Critical', color: 'bg-red-100 text-red-800' }
   ];
 
-  useEffect(() => {
-    if (communityId) {
-      loadAlerts();
-    }
-  }, [communityId]);
-
-  const loadAlerts = async () => {
+  const loadAlerts = useCallback(async () => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`/api/hub/alerts?communityId=${communityId}`);
@@ -60,7 +54,13 @@ const EmergencyAlertManager = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadAlerts();
+    }
+  }, [communityId, loadAlerts]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

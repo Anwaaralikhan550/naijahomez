@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users,
   UserPlus,
@@ -36,14 +36,7 @@ const MemberManagement = ({ communityId }) => {
   const [selectedMember, setSelectedMember] = useState(null);
   const [showMemberDetails, setShowMemberDetails] = useState(false);
 
-  useEffect(() => {
-    if (communityId) {
-      loadMembers();
-      loadJoinRequests();
-    }
-  }, [communityId]);
-
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`/api/hub/admin/members?communityId=${communityId}`);
@@ -57,9 +50,9 @@ const MemberManagement = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
 
-  const loadJoinRequests = async () => {
+  const loadJoinRequests = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/join-requests?communityId=${communityId}`);
       const result = await response.json();
@@ -70,7 +63,14 @@ const MemberManagement = ({ communityId }) => {
     } catch (error) {
       console.error('Error loading join requests:', error);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadMembers();
+      loadJoinRequests();
+    }
+  }, [communityId, loadJoinRequests, loadMembers]);
 
   const handleApproveRequest = async (request) => {
     try {

@@ -1,5 +1,6 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Shield, 
   Users, 
@@ -16,7 +17,11 @@ import {
   Send,
   Eye,
   Filter,
-  Download
+  Download,
+  LogOut,
+  BadgeCheck,
+  FileText,
+  Megaphone
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
@@ -27,34 +32,97 @@ import IssueManagement from './admin/IssueManagement';
 import EmergencyAlertManager from './admin/EmergencyAlertManager';
 import AmenityManagement from './admin/AmenityManagement';
 import AccessCodeGenerator from './admin/AccessCodeGenerator';
+import KycApprovals from './admin/KycApprovals';
+import ListingReportManagement from './admin/ListingReportManagement';
+import ContentAutomationDashboard from './admin/ContentAutomationDashboard';
+import AdvertisingManagement from './admin/AdvertisingManagement';
+import SupportManagement from './admin/SupportManagement';
+
+const DEFAULT_STATS = {
+  totalMembers: 0,
+  activeIssues: 0,
+  pendingVisitors: 0,
+  marketplaceItems: 0,
+  notificationsThisMonth: 0,
+  activeAmenities: 0,
+  activeAlerts: 0,
+  pendingJoinRequests: 0,
+  recentActivity: []
+};
+
+const ADMIN_TABS = [
+  { id: 'overview', label: 'Overview', icon: BarChart3 },
+  { id: 'members', label: 'Members', icon: Users },
+  { id: 'kyc-approvals', label: 'KYC Approvals', icon: BadgeCheck },
+  { id: 'issues', label: 'Issues', icon: MessageCircle },
+  { id: 'alerts', label: 'Emergency Alerts', icon: AlertTriangle },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'amenities', label: 'Amenities', icon: Calendar },
+  { id: 'access-codes', label: 'Access Codes', icon: Settings },
+  { id: 'content-automation', label: 'Content Automation', icon: FileText },
+  { id: 'advertising', label: 'Advertising', icon: Megaphone },
+  { id: 'support', label: 'Support', icon: MessageCircle },
+  { id: 'market-insights', label: 'Market Insights', icon: Eye },
+  { id: 'reports', label: 'Reports', icon: AlertTriangle },
+  { id: 'settings', label: 'Community Settings', icon: Settings },
+];
 
 const HubAdmin = ({ communityId: propCommunityId }) => {
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(false);
   const [currentCommunity, setCurrentCommunity] = useState(propCommunityId || null);
-  const [stats, setStats] = useState({
-    totalMembers: 0,
-    activeIssues: 0,
-    pendingVisitors: 0,
-    marketplaceItems: 0,
-    notificationsThisMonth: 0,
-    activeAmenities: 0,
-    activeAlerts: 0,
-    pendingJoinRequests: 0,
-    recentActivity: []
-  });
+  const [stats, setStats] = useState(DEFAULT_STATS);
+  const [marketInsights, setMarketInsights] = useState([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState('');
 
-  const adminTabs = [
-    { id: 'overview', label: 'Overview', icon: BarChart3 },
-    { id: 'members', label: 'Members', icon: Users },
-    { id: 'issues', label: 'Issues', icon: MessageCircle },
-    { id: 'alerts', label: 'Emergency Alerts', icon: AlertTriangle },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'amenities', label: 'Amenities', icon: Calendar },
-    { id: 'access-codes', label: 'Access Codes', icon: Settings },
-    { id: 'settings', label: 'Community Settings', icon: Settings },
-  ];
+  const loadDashboardStats = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      const response = await authenticatedFetch(`/api/hub/dashboard-stats?communityId=${currentCommunity}&userId=${user.uid}`);
+      const result = await response.json();
+      
+      
+      if (response.ok) {
+        setStats(result.stats || DEFAULT_STATS);
+      } else {
+        console.error('Failed to load stats:', result.error);
+        // Fallback to default stats
+        setStats(DEFAULT_STATS);
+      }
+    } catch (error) {
+      console.error('Error loading stats:', error);
+      // Fallback to default stats
+      setStats(DEFAULT_STATS);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentCommunity, user?.uid]);
+
+  const loadMarketInsights = useCallback(async () => {
+    try {
+      setInsightsLoading(true);
+      setInsightsError('');
+
+      const response = await authenticatedFetch('/api/hub/location-insights');
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result?.error || 'Failed to load market insights');
+      }
+
+      setMarketInsights(Array.isArray(result.insights) ? result.insights : []);
+    } catch (error) {
+      console.error('Error loading market insights:', error);
+      setInsightsError(error.message || 'Failed to load market insights');
+      setMarketInsights([]);
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, []);
 
   // Get current community from localStorage or user memberships
   useEffect(() => {
@@ -99,59 +167,21 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
     if (currentCommunity && user?.uid) {
       loadDashboardStats();
     }
-  }, [currentCommunity, user?.uid]);
+  }, [currentCommunity, user?.uid, loadDashboardStats]);
 
-  const loadDashboardStats = async () => {
+  useEffect(() => {
+    if (activeTab !== 'market-insights') return;
+    loadMarketInsights();
+  }, [activeTab, loadMarketInsights]);
+
+  const handleSignOut = async () => {
     try {
-      setLoading(true);
-
-      const response = await authenticatedFetch(`/api/hub/dashboard-stats?communityId=${currentCommunity}&userId=${user.uid}`);
-      const result = await response.json();
-      
-      
-      if (response.ok) {
-        setStats(result.stats || {
-          totalMembers: 0,
-          activeIssues: 0,
-          pendingVisitors: 0,
-          marketplaceItems: 0,
-          notificationsThisMonth: 0,
-          activeAmenities: 0,
-          activeAlerts: 0,
-          pendingJoinRequests: 0,
-          recentActivity: []
-        });
-      } else {
-        console.error('Failed to load stats:', result.error);
-        // Fallback to default stats
-        setStats({
-          totalMembers: 0,
-          activeIssues: 0,
-          pendingVisitors: 0,
-          marketplaceItems: 0,
-          notificationsThisMonth: 0,
-          activeAmenities: 0,
-          activeAlerts: 0,
-          pendingJoinRequests: 0,
-          recentActivity: []
-        });
-      }
+      await signOut();
+      toast.success('Signed out successfully');
+      router.push('/login');
     } catch (error) {
-      console.error('Error loading stats:', error);
-      // Fallback to default stats
-      setStats({
-        totalMembers: 0,
-        activeIssues: 0,
-        pendingVisitors: 0,
-        marketplaceItems: 0,
-        notificationsThisMonth: 0,
-        activeAmenities: 0,
-        activeAlerts: 0,
-        pendingJoinRequests: 0,
-        recentActivity: []
-      });
-    } finally {
-      setLoading(false);
+      console.error('Admin sign out error:', error);
+      toast.error('Failed to sign out. Please try again.');
     }
   };
 
@@ -168,7 +198,11 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Members</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalMembers}</p>
+              {loading ? (
+                <div className="h-8 w-14 bg-gray-200 animate-pulse rounded mt-1"></div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900">{stats?.totalMembers ?? 0}</p>
+              )}
             </div>
           </div>
         </div>
@@ -180,7 +214,11 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Active Issues</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.activeIssues}</p>
+              {loading ? (
+                <div className="h-8 w-14 bg-gray-200 animate-pulse rounded mt-1"></div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900">{stats?.activeIssues ?? 0}</p>
+              )}
             </div>
           </div>
         </div>
@@ -192,7 +230,11 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Today's Visitors</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.pendingVisitors}</p>
+              {loading ? (
+                <div className="h-8 w-14 bg-gray-200 animate-pulse rounded mt-1"></div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900">{stats?.pendingVisitors ?? 0}</p>
+              )}
             </div>
           </div>
         </div>
@@ -204,7 +246,11 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Marketplace Items</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.marketplaceItems}</p>
+              {loading ? (
+                <div className="h-8 w-14 bg-gray-200 animate-pulse rounded mt-1"></div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900">{stats?.marketplaceItems ?? 0}</p>
+              )}
             </div>
           </div>
         </div>
@@ -219,7 +265,11 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Notifications This Month</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.notificationsThisMonth}</p>
+              {loading ? (
+                <div className="h-8 w-14 bg-gray-200 animate-pulse rounded mt-1"></div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900">{stats?.notificationsThisMonth ?? 0}</p>
+              )}
             </div>
           </div>
         </div>
@@ -231,7 +281,11 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Active Amenities</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.activeAmenities}</p>
+              {loading ? (
+                <div className="h-8 w-14 bg-gray-200 animate-pulse rounded mt-1"></div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900">{stats?.activeAmenities ?? 0}</p>
+              )}
             </div>
           </div>
         </div>
@@ -243,7 +297,11 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Active Alerts</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.activeAlerts}</p>
+              {loading ? (
+                <div className="h-8 w-14 bg-gray-200 animate-pulse rounded mt-1"></div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900">{stats?.activeAlerts ?? 0}</p>
+              )}
             </div>
           </div>
         </div>
@@ -255,7 +313,11 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Pending Join Requests</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.pendingJoinRequests}</p>
+              {loading ? (
+                <div className="h-8 w-14 bg-gray-200 animate-pulse rounded mt-1"></div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900">{stats?.pendingJoinRequests ?? 0}</p>
+              )}
             </div>
           </div>
         </div>
@@ -267,7 +329,19 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
           <h4 className="text-lg font-semibold text-gray-900">Recent Activity</h4>
         </div>
         <div className="p-6">
-          {stats.recentActivity && stats.recentActivity.length > 0 ? (
+          {loading ? (
+            <div className="space-y-3">
+              {[...Array(3)].map((_, idx) => (
+                <div key={idx} className="flex items-center p-3 bg-gray-50 rounded-lg animate-pulse">
+                  <div className="w-5 h-5 bg-gray-200 rounded mr-3"></div>
+                  <div className="flex-1">
+                    <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                    <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : stats.recentActivity && stats.recentActivity.length > 0 ? (
             <div className="space-y-4">
               {stats.recentActivity.map((activity, index) => (
                 <div key={index} className="flex items-center p-3 bg-gray-50 rounded-lg">
@@ -303,6 +377,10 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
     <IssueManagement communityId={currentCommunity} />
   );
 
+  const renderKycApprovals = () => (
+    <KycApprovals />
+  );
+
   const renderAlerts = () => (
     <EmergencyAlertManager communityId={currentCommunity} />
   );
@@ -317,6 +395,10 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
 
   const renderAccessCodes = () => (
     <AccessCodeGenerator communityId={currentCommunity} />
+  );
+
+  const renderReports = () => (
+    <ListingReportManagement />
   );
 
   const renderSettings = () => (
@@ -393,15 +475,92 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
     </div>
   );
 
+  const renderMarketInsights = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-xl font-semibold text-gray-900">Market Insights</h3>
+          <p className="text-sm text-gray-500">Top active listing locations across properties and marketplace</p>
+        </div>
+        <button
+          type="button"
+          onClick={loadMarketInsights}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {insightsLoading && (
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <p className="text-gray-500">Loading market insights...</p>
+        </div>
+      )}
+
+      {!insightsLoading && insightsError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <p className="text-red-700 font-medium">Could not load market insights</p>
+          <p className="text-sm text-red-600 mt-1">{insightsError}</p>
+        </div>
+      )}
+
+      {!insightsLoading && !insightsError && marketInsights.length === 0 && (
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <p className="text-gray-500">No active location insights available yet.</p>
+        </div>
+      )}
+
+      {!insightsLoading && !insightsError && marketInsights.length > 0 && (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="p-4 border-b bg-gray-50">
+            <p className="text-sm font-medium text-gray-700">Ranked by active listing count</p>
+          </div>
+          <div className="divide-y">
+            {marketInsights.map((item, index) => {
+              const maxCount = marketInsights[0]?.count || 1;
+              const width = Math.max(6, Math.round((item.count / maxCount) * 100));
+
+              return (
+                <div key={`${item.state}-${item.location}-${index}`} className="p-4">
+                  <div className="flex items-center justify-between gap-4 mb-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 truncate">
+                        #{index + 1} {item.location}
+                      </p>
+                      <p className="text-sm text-gray-500 truncate">{item.state}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-blue-700">{item.count}</p>
+                      <p className="text-xs text-gray-500">active listings</p>
+                    </div>
+                  </div>
+                  <div className="w-full h-2 bg-blue-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-600 rounded-full" style={{ width: `${width}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'overview': return renderOverview();
       case 'members': return renderMembers();
+      case 'kyc-approvals': return renderKycApprovals();
       case 'issues': return renderIssues();
       case 'alerts': return renderAlerts();
       case 'notifications': return renderNotifications();
       case 'amenities': return renderAmenities();
       case 'access-codes': return renderAccessCodes();
+      case 'content-automation': return <ContentAutomationDashboard />;
+      case 'advertising': return <AdvertisingManagement />;
+      case 'support': return <SupportManagement />;
+      case 'market-insights': return renderMarketInsights();
+      case 'reports': return renderReports();
       case 'settings': return renderSettings();
       default: return renderOverview();
     }
@@ -431,12 +590,20 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
           </h2>
           <p className="text-gray-600">Manage your community</p>
         </div>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </button>
       </div>
 
       {/* Tab Navigation */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8 overflow-x-auto">
-          {adminTabs.map((tab) => (
+          {ADMIN_TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}

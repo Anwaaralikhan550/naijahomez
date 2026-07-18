@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Phone, 
   Shield, 
@@ -55,7 +55,7 @@ const EmergencyContacts = ({ communityId }) => {
   ];
 
   // Pre-populated emergency numbers for Nigeria
-  const defaultContacts = [
+  const defaultContacts = useMemo(() => [
     {
       title: 'Nigeria Police Force',
       contactType: 'police',
@@ -97,15 +97,9 @@ const EmergencyContacts = ({ communityId }) => {
       isEmergencyOnly: true,
       isDefault: true
     }
-  ];
+  ], []);
 
-  useEffect(() => {
-    if (communityId) {
-      loadEmergencyContacts();
-    }
-  }, [communityId]);
-
-  const loadEmergencyContacts = async () => {
+  const loadEmergencyContacts = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/emergency?communityId=${communityId}&type=contact`);
       const result = await response.json();
@@ -126,7 +120,13 @@ const EmergencyContacts = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId, defaultContacts]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadEmergencyContacts();
+    }
+  }, [communityId, loadEmergencyContacts]);
 
   const handleAddContact = async (e) => {
     e.preventDefault();

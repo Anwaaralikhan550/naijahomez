@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { 
   Building2, 
@@ -28,14 +28,15 @@ import {
   ChevronDown,
   ChevronRight,
   Wifi,
-  Cloud
+  Cloud,
+  LogOut
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
 import NotificationCenter from '@/components/hub/NotificationCenter';
 
 const HubLayout = ({ children, communityId }) => {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -63,27 +64,6 @@ const HubLayout = ({ children, communityId }) => {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
-
-  // Auto-expand section based on current path
-  useEffect(() => {
-    const findActiveSectionId = () => {
-      const allCategories = [...navigationCategories];
-      if (userRole === 'admin') allCategories.push(adminSection);
-      
-      for (const category of allCategories) {
-        const hasActivePage = category.items.some(item => isActivePath(item.path));
-        if (hasActivePage && category.label) {
-          setExpandedSections(prev => ({
-            ...prev,
-            [category.id]: true
-          }));
-          break;
-        }
-      }
-    };
-
-    findActiveSectionId();
-  }, [pathname, userRole]);
 
   // Load user communities and set current community
   useEffect(() => {
@@ -163,15 +143,15 @@ const HubLayout = ({ children, communityId }) => {
   };
 
   // Organized navigation structure
-  const navigationCategories = [
+  const navigationCategories = useMemo(() => ([
     {
       id: 'main',
       label: null, // No label for main items
       items: [
         {
           id: 'dashboard',
-          name: 'Dashboard',
-          path: '/the-hub/dashboard',
+          name: 'Community Hub',
+          path: '/dashboard/community/dashboard',
           icon: Home,
           description: 'Hub overview',
           requiresAuth: true
@@ -179,7 +159,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'communities',
           name: 'Communities',
-          path: '/the-hub/communities', 
+          path: '/dashboard/community/communities', 
           icon: Building2,
           description: 'Browse and join',
           requiresAuth: false
@@ -194,7 +174,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'feed',
           name: 'Community Feed',
-          path: '/the-hub/feed',
+          path: '/dashboard/community/feed',
           icon: Rss,
           description: 'Posts and updates',
           requiresAuth: true
@@ -202,7 +182,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'events',
           name: 'Events',
-          path: '/the-hub/events',
+          path: '/dashboard/community/events',
           icon: Calendar,
           description: 'Community events',
           requiresAuth: true
@@ -210,7 +190,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'messages',
           name: 'Messages',
-          path: '/the-hub/messages',
+          path: '/dashboard/community/messages',
           icon: Mail,
           description: 'Private messages',
           requiresAuth: true
@@ -218,7 +198,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'marketplace',
           name: 'Marketplace',
-          path: '/the-hub/marketplace',
+          path: '/dashboard/community/marketplace',
           icon: ShoppingBag,
           description: 'Buy and sell',
           requiresAuth: true
@@ -233,7 +213,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'generator-network',
           name: 'Generator Network',
-          path: '/the-hub/generator-network',
+          path: '/dashboard/community/generator-network',
           icon: Zap,
           description: 'Power sharing',
           requiresAuth: true
@@ -241,7 +221,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'water-scheduling',
           name: 'Water Orders',
-          path: '/the-hub/water-scheduling', 
+          path: '/dashboard/community/water-scheduling', 
           icon: Droplets,
           description: 'Bulk delivery',
           requiresAuth: true
@@ -249,7 +229,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'security-coordination',
           name: 'Security Guards',
-          path: '/the-hub/security-coordination',
+          path: '/dashboard/community/security-coordination',
           icon: Shield,
           description: 'Shared security',
           requiresAuth: true
@@ -257,7 +237,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'internet-sharing',
           name: 'Internet Sharing',
-          path: '/the-hub/internet-sharing',
+          path: '/dashboard/community/internet-sharing',
           icon: Wifi,
           description: 'Cost sharing',
           requiresAuth: true
@@ -272,7 +252,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'emergency-contacts',
           name: 'Emergency Contacts',
-          path: '/the-hub/emergency-contacts',
+          path: '/dashboard/community/emergency-contacts',
           icon: Phone,
           description: 'Quick access',
           requiresAuth: true
@@ -280,7 +260,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'community-watch',
           name: 'Community Watch',
-          path: '/the-hub/community-watch',
+          path: '/dashboard/community/community-watch',
           icon: Eye,
           description: 'Patrol schedules',
           requiresAuth: true
@@ -288,7 +268,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'incident-reports',
           name: 'Report Incident',
-          path: '/the-hub/incident-reports',
+          path: '/dashboard/community/incident-reports',
           icon: AlertTriangle,
           description: 'Security incidents',
           requiresAuth: true
@@ -296,7 +276,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'weather-alerts',
           name: 'Weather & Alerts',
-          path: '/the-hub/weather-alerts',
+          path: '/dashboard/community/weather-alerts',
           icon: Cloud,
           description: 'Real-time alerts',
           requiresAuth: true
@@ -311,7 +291,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'visitors',
           name: 'Visitor Management',
-          path: '/the-hub/visitors',
+          path: '/dashboard/community/visitors',
           icon: UserCheck,
           description: 'Access codes',
           requiresAuth: true
@@ -319,7 +299,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'amenities',
           name: 'Amenities',
-          path: '/the-hub/amenities',
+          path: '/dashboard/community/amenities',
           icon: Dumbbell,
           description: 'Book facilities',
           requiresAuth: true
@@ -334,7 +314,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'issues',
           name: 'Report Issues',
-          path: '/the-hub/issues',
+          path: '/dashboard/community/issues',
           icon: AlertTriangle,
           description: 'Maintenance',
           requiresAuth: true
@@ -342,7 +322,7 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'alerts',
           name: 'Emergency Alerts',
-          path: '/the-hub/alerts',
+          path: '/dashboard/community/alerts',
           icon: Bell,
           description: 'Community alerts',
           requiresAuth: true
@@ -350,31 +330,31 @@ const HubLayout = ({ children, communityId }) => {
         {
           id: 'notifications',
           name: 'Notifications',
-          path: '/the-hub/notifications',
+          path: '/dashboard/community/notifications',
           icon: Bell,
           description: 'Your notifications',
           requiresAuth: true
         }
       ]
     }
-  ];
+  ]), []);
 
   // Admin section (only shown to admins)
-  const adminSection = {
+  const adminSection = useMemo(() => ({
     id: 'admin',
     label: null,
     items: [
       {
         id: 'admin',
         name: 'Admin Panel',
-        path: '/the-hub/admin',
+        path: '/dashboard/community/admin',
         icon: Settings,
         description: 'Community admin',
         adminOnly: true,
         requiresAuth: true
       }
     ]
-  };
+  }), []);
 
   // Toggle section expansion
   const toggleSection = (sectionId) => {
@@ -385,20 +365,74 @@ const HubLayout = ({ children, communityId }) => {
   };
 
   // Filter items based on auth and role
-  const filterItems = (items) => {
+  const filterItems = useCallback((items) => {
     return items.filter(item => {
       if (item.requiresAuth && !user) return false;
       if (item.adminOnly && userRole !== 'admin') return false;
       return true;
     });
-  };
+  }, [user, userRole]);
 
-
-  const isActivePath = (path) => {
-    if (path === '/the-hub/dashboard') {
-      return pathname === '/the-hub' || pathname === '/the-hub/dashboard';
+  const isActivePath = useCallback((path) => {
+    if (path === '/dashboard/community/dashboard') {
+      return pathname === '/dashboard/community' || pathname === '/dashboard/community/dashboard';
     }
     return pathname.startsWith(path);
+  }, [pathname]);
+
+  const normalizeRoutePath = useCallback((value, fallback = '/dashboard/community') => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed || trimmed === '[object Object]' || trimmed.includes('[object Object]')) {
+        return fallback;
+      }
+      return trimmed;
+    }
+
+    if (value && typeof value === 'object') {
+      if (typeof value.pathname === 'string' && value.pathname.trim()) {
+        const query = value.query && typeof value.query === 'object'
+          ? `?${new URLSearchParams(
+              Object.entries(value.query).reduce((acc, [key, queryValue]) => {
+                acc[key] = queryValue == null ? '' : String(queryValue);
+                return acc;
+              }, {})
+            ).toString()}`
+          : '';
+        return `${value.pathname.trim()}${query}`;
+      }
+    }
+
+    return fallback;
+  }, []);
+
+  // Auto-expand section based on current path
+  useEffect(() => {
+    const allCategories = [...navigationCategories];
+    if (userRole === 'admin') allCategories.push(adminSection);
+
+    for (const category of allCategories) {
+      const hasActivePage = category.items.some(item => isActivePath(item.path));
+      if (hasActivePage && category.label) {
+        setExpandedSections(prev => ({
+          ...prev,
+          [category.id]: true
+        }));
+        break;
+      }
+    }
+  }, [adminSection, isActivePath, navigationCategories, userRole]);
+
+  const handleHubSignOut = async () => {
+    try {
+      await signOut();
+      if (isMobile) {
+        setIsMenuOpen(false);
+      }
+      router.push('/login');
+    } catch (error) {
+      console.error('Hub sign out error:', error);
+    }
   };
 
   return (
@@ -510,13 +544,13 @@ const HubLayout = ({ children, communityId }) => {
                 </div>
                 <div className="space-y-2">
                   <button
-                    onClick={() => router.push('/login?returnUrl=/the-hub')}
+                    onClick={() => router.push('/login?returnUrl=/dashboard/community')}
                     className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
                   >
                     Sign In
                   </button>
                   <button
-                    onClick={() => router.push('/register?returnUrl=/the-hub')}
+                    onClick={() => router.push('/register?returnUrl=/dashboard/community')}
                     className="w-full px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition"
                   >
                     Sign Up
@@ -572,7 +606,7 @@ const HubLayout = ({ children, communityId }) => {
                             <button
                               key={item.id}
                               onClick={() => {
-                                router.push(item.path);
+                                router.push(normalizeRoutePath(item.path));
                                 if (isMobile) setIsMenuOpen(false);
                               }}
                               className={`
@@ -598,6 +632,21 @@ const HubLayout = ({ children, communityId }) => {
                   );
                 })}
             </div>
+
+            {user && userRole === 'admin' && (
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <button
+                  onClick={handleHubSignOut}
+                  className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left text-red-600 hover:bg-red-50 transition"
+                >
+                  <LogOut className="w-5 h-5 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Sign Out</p>
+                    <p className="text-xs text-red-500">Exit admin hub session</p>
+                  </div>
+                </button>
+              </div>
+            )}
           </div>
         </nav>
 
@@ -621,3 +670,4 @@ const HubLayout = ({ children, communityId }) => {
 };
 
 export default HubLayout;
+

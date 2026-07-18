@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Eye, 
   Users, 
@@ -48,14 +48,7 @@ const CommunityWatch = ({ communityId }) => {
     preferredShifts: []
   });
 
-  useEffect(() => {
-    if (communityId) {
-      loadPatrols();
-      loadVolunteers();
-    }
-  }, [communityId]);
-
-  const loadPatrols = async () => {
+  const loadPatrols = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/smart-services?communityId=${communityId}&type=community_watch`);
       const result = await response.json();
@@ -66,9 +59,9 @@ const CommunityWatch = ({ communityId }) => {
     } catch (error) {
       console.error('Error loading patrols:', error);
     }
-  };
+  }, [communityId]);
 
-  const loadVolunteers = async () => {
+  const loadVolunteers = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/volunteers?communityId=${communityId}`);
       const result = await response.json();
@@ -81,7 +74,14 @@ const CommunityWatch = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadPatrols();
+      loadVolunteers();
+    }
+  }, [communityId, loadPatrols, loadVolunteers]);
 
   const createPatrol = async (e) => {
     e.preventDefault();

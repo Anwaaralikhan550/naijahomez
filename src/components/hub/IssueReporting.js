@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   AlertTriangle, 
   MessageCircle, 
@@ -57,13 +57,7 @@ const IssueReporting = ({ communityId }) => {
     { value: 'closed', label: 'Closed' }
   ];
 
-  useEffect(() => {
-    if (user && communityId) {
-      loadIssues();
-    }
-  }, [user, communityId]);
-
-  const loadIssues = async () => {
+  const loadIssues = useCallback(async () => {
     try {
       setLoading(true);
       console.log('Loading issues for community:', communityId, 'user:', user.uid);
@@ -85,7 +79,13 @@ const IssueReporting = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId, user?.uid]);
+
+  useEffect(() => {
+    if (user && communityId) {
+      loadIssues();
+    }
+  }, [user, communityId, loadIssues]);
 
   const handleInputChange = (e) => {
     setFormData({

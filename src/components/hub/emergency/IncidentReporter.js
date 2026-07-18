@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   AlertTriangle, 
   FileText, 
@@ -39,13 +39,7 @@ const IncidentReporter = ({ communityId }) => {
     actionTaken: ''
   });
 
-  useEffect(() => {
-    if (communityId) {
-      loadIncidents();
-    }
-  }, [communityId]);
-
-  const loadIncidents = async () => {
+  const loadIncidents = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/emergency-alerts?communityId=${communityId}&type=incident`);
       const result = await response.json();
@@ -58,7 +52,13 @@ const IncidentReporter = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadIncidents();
+    }
+  }, [communityId, loadIncidents]);
 
   const submitReport = async (e) => {
     e.preventDefault();
@@ -113,11 +113,15 @@ const IncidentReporter = ({ communityId }) => {
         });
         loadIncidents();
       } else {
-        toast.error('Failed to submit incident report');
+        const backendMessage =
+          (typeof result?.error === 'string' && result.error) ||
+          (typeof result?.message === 'string' && result.message) ||
+          'Failed to submit incident report';
+        toast.error(backendMessage);
       }
     } catch (error) {
       console.error('Error submitting report:', error);
-      toast.error('Error submitting incident report');
+      toast.error(error?.message || 'Error submitting incident report');
     }
   };
 

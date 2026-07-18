@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Shield, 
   Users, 
@@ -40,13 +40,7 @@ const SecurityCoordination = ({ communityId }) => {
     coverageArea: ''
   });
 
-  useEffect(() => {
-    if (communityId) {
-      loadSecurityServices();
-    }
-  }, [communityId]);
-
-  const loadSecurityServices = async () => {
+  const loadSecurityServices = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/smart-services?communityId=${communityId}&type=security`);
       const result = await response.json();
@@ -62,7 +56,13 @@ const SecurityCoordination = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadSecurityServices();
+    }
+  }, [communityId, loadSecurityServices]);
 
   const handleCreateService = async (e) => {
     e.preventDefault();
@@ -187,7 +187,7 @@ const SecurityCoordination = ({ communityId }) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     );
   }
@@ -202,7 +202,7 @@ const SecurityCoordination = ({ communityId }) => {
         </div>
         <button
           onClick={() => setShowCreateForm(true)}
-          className="flex items-center space-x-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+          className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
         >
           <Plus className="w-5 h-5" />
           <span>Create Coordination</span>
@@ -224,7 +224,7 @@ const SecurityCoordination = ({ communityId }) => {
                   value={formData.title}
                   onChange={(e) => setFormData({...formData, title: e.target.value})}
                   placeholder="e.g., Block A Security Guards"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -236,7 +236,7 @@ const SecurityCoordination = ({ communityId }) => {
                   value={formData.coverageArea}
                   onChange={(e) => setFormData({...formData, coverageArea: e.target.value})}
                   placeholder="e.g., Block A, Houses 1-20"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -250,7 +250,7 @@ const SecurityCoordination = ({ communityId }) => {
                 onChange={(e) => setFormData({...formData, description: e.target.value})}
                 placeholder="Describe the security needs and coordination details..."
                 rows={3}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
@@ -263,7 +263,7 @@ const SecurityCoordination = ({ communityId }) => {
                   type="date"
                   value={formData.startDate}
                   onChange={(e) => setFormData({...formData, startDate: e.target.value})}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -274,7 +274,7 @@ const SecurityCoordination = ({ communityId }) => {
                   type="date"
                   value={formData.endDate}
                   onChange={(e) => setFormData({...formData, endDate: e.target.value})}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -284,7 +284,7 @@ const SecurityCoordination = ({ communityId }) => {
                 <select
                   value={formData.shiftType}
                   onChange={(e) => setFormData({...formData, shiftType: e.target.value})}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="day">Day Shift (6AM - 6PM)</option>
                   <option value="night">Night Shift (6PM - 6AM)</option>
@@ -303,7 +303,7 @@ const SecurityCoordination = ({ communityId }) => {
                   value={formData.estimatedMonthlyCost}
                   onChange={(e) => setFormData({...formData, estimatedMonthlyCost: parseFloat(e.target.value) || 0})}
                   placeholder="Total monthly cost for guards"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 {formData.estimatedMonthlyCost > 0 && formData.maxParticipants > 0 && (
                   <p className="text-sm text-gray-600 mt-1">
@@ -321,7 +321,7 @@ const SecurityCoordination = ({ communityId }) => {
                   onChange={(e) => setFormData({...formData, maxParticipants: parseInt(e.target.value)})}
                   min="2"
                   max="50"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -335,14 +335,14 @@ const SecurityCoordination = ({ communityId }) => {
                 onChange={(e) => setFormData({...formData, guardRequirements: e.target.value})}
                 placeholder="Specify requirements: armed/unarmed, experience level, patrol routes, etc."
                 rows={2}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
             <div className="flex space-x-4 pt-4">
               <button
                 type="submit"
-                className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
               >
                 Create Security Coordination
               </button>
@@ -369,7 +369,7 @@ const SecurityCoordination = ({ communityId }) => {
             </p>
             <button
               onClick={() => setShowCreateForm(true)}
-              className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700"
+              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
             >
               Create First Coordination
             </button>
@@ -446,7 +446,7 @@ const SecurityCoordination = ({ communityId }) => {
                       {service.participants.map((participant, index) => (
                         <span
                           key={index}
-                          className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full"
+                          className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full"
                         >
                           {participant.userName}
                         </span>
@@ -460,7 +460,7 @@ const SecurityCoordination = ({ communityId }) => {
                   {!isParticipant && !isCreator && service.status === 'open' && (
                     <button
                       onClick={() => handleJoinService(service.id)}
-                      className="flex items-center space-x-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+                      className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                     >
                       <UserPlus className="w-4 h-4" />
                       <span>Join Coordination</span>
@@ -478,7 +478,7 @@ const SecurityCoordination = ({ communityId }) => {
                   )}
 
                   {isCreator && (
-                    <div className="flex items-center space-x-2 text-purple-600">
+                    <div className="flex items-center space-x-2 text-blue-600">
                       <Settings className="w-4 h-4" />
                       <span className="text-sm font-medium">You created this coordination</span>
                     </div>
@@ -498,3 +498,4 @@ const SecurityCoordination = ({ communityId }) => {
 };
 
 export default SecurityCoordination;
+

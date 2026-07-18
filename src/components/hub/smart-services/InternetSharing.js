@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Wifi, 
   Users, 
@@ -41,13 +41,7 @@ const InternetSharing = ({ communityId }) => {
     contractDuration: 12
   });
 
-  useEffect(() => {
-    if (communityId) {
-      loadInternetServices();
-    }
-  }, [communityId]);
-
-  const loadInternetServices = async () => {
+  const loadInternetServices = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/smart-services?communityId=${communityId}&type=internet`);
       const result = await response.json();
@@ -63,7 +57,13 @@ const InternetSharing = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadInternetServices();
+    }
+  }, [communityId, loadInternetServices]);
 
   const handleCreateService = async (e) => {
     e.preventDefault();

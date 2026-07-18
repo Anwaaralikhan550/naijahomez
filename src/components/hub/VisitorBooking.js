@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, 
   Clock, 
@@ -64,13 +64,7 @@ const VisitorBooking = ({ communityId: propCommunityId }) => {
     loadCommunity();
   }, [user, propCommunityId]);
 
-  useEffect(() => {
-    if (user && currentCommunity) {
-      loadVisitorCodes();
-    }
-  }, [user, currentCommunity]);
-
-  const loadVisitorCodes = async () => {
+  const loadVisitorCodes = useCallback(async () => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`/api/hub/visitors?userId=${user.uid}&communityId=${currentCommunity}`);
@@ -84,7 +78,13 @@ const VisitorBooking = ({ communityId: propCommunityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentCommunity, user?.uid]);
+
+  useEffect(() => {
+    if (user && currentCommunity) {
+      loadVisitorCodes();
+    }
+  }, [user, currentCommunity, loadVisitorCodes]);
 
   const handleInputChange = (e) => {
     setFormData({

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Search,
   MapPin,
@@ -36,13 +36,7 @@ const CommunitySearch = ({ onClose, onSelect }) => {
   const [joiningCommunity, setJoiningCommunity] = useState(null);
 
   // Load user's join requests and communities on mount
-  useEffect(() => {
-    if (user?.uid) {
-      loadUserJoinData();
-    }
-  }, [user]);
-
-  const loadUserJoinData = async () => {
+  const loadUserJoinData = useCallback(async () => {
     try {
       // Load user's join requests
       const requestsResponse = await authenticatedFetch(`/api/hub/join-requests?userId=${user.uid}`);
@@ -60,7 +54,13 @@ const CommunitySearch = ({ onClose, onSelect }) => {
     } catch (error) {
       console.error('Error loading user join data:', error);
     }
-  };
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      loadUserJoinData();
+    }
+  }, [user?.uid, loadUserJoinData]);
 
   // Get button state for a community (matches main page logic)
   const getJoinButtonState = (communityId) => {

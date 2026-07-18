@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Zap, 
   Clock, 
@@ -45,14 +45,7 @@ const GeneratorNetwork = ({ communityId }) => {
     location: ''
   });
 
-  useEffect(() => {
-    if (communityId) {
-      loadGeneratorServices();
-      loadPowerStatus();
-    }
-  }, [communityId]);
-
-  const loadGeneratorServices = async () => {
+  const loadGeneratorServices = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/smart-services?communityId=${communityId}&type=generator`);
       const result = await response.json();
@@ -68,9 +61,9 @@ const GeneratorNetwork = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
 
-  const loadPowerStatus = async () => {
+  const loadPowerStatus = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/power-status?communityId=${communityId}`);
       const result = await response.json();
@@ -86,7 +79,14 @@ const GeneratorNetwork = ({ communityId }) => {
     } catch (error) {
       console.error('Error loading power status:', error);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadGeneratorServices();
+      loadPowerStatus();
+    }
+  }, [communityId, loadGeneratorServices, loadPowerStatus]);
 
   const updatePowerStatus = async (newStatus) => {
     if (!user) {

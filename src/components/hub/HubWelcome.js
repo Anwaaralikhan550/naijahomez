@@ -96,21 +96,21 @@ const HubWelcome = () => {
       description: 'See latest posts and updates',
       icon: MessageCircle,
       color: 'bg-blue-500',
-      path: '/the-hub/feed'
+      path: '/dashboard/community/feed'
     },
     {
       title: 'Browse Communities',
       description: 'Find and join new communities',
       icon: Building2,
       color: 'bg-green-500', 
-      path: '/the-hub/communities'
+      path: '/dashboard/community/communities'
     },
     {
       title: 'Events',
       description: 'View upcoming community events',
       icon: Calendar,
       color: 'bg-orange-500',
-      path: '/the-hub/events'
+      path: '/dashboard/community/events'
     }
   ];
 
@@ -226,7 +226,7 @@ const HubWelcome = () => {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Your Communities</h2>
             <button
-              onClick={() => router.push('/the-hub/communities')}
+              onClick={() => router.push('/dashboard/community/communities')}
               className="text-blue-600 hover:underline text-sm"
             >
               View All
@@ -245,7 +245,7 @@ const HubWelcome = () => {
                   {community.description?.substring(0, 100)}...
                 </p>
                 <button
-                  onClick={() => router.push('/the-hub/feed')}
+                  onClick={() => router.push('/dashboard/community/feed')}
                   className="text-blue-600 hover:underline text-sm"
                 >
                   View Feed →
@@ -288,7 +288,7 @@ const HubWelcome = () => {
             <div className="flex gap-2">
               {userCommunities.some(c => c.role === 'admin') && (
                 <button
-                  onClick={() => router.push('/the-hub/admin')}
+                  onClick={() => router.push('/dashboard/community/admin')}
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm"
                 >
                   Admin Panel
@@ -312,7 +312,7 @@ const HubWelcome = () => {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Popular Communities</h2>
             <button
-              onClick={() => router.push('/the-hub/communities')}
+              onClick={() => router.push('/dashboard/community/communities')}
               className="text-blue-600 hover:underline text-sm"
             >
               Browse All

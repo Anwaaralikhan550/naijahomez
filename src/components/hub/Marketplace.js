@@ -1,16 +1,14 @@
 'use client';
-import React, { useState, useEffect } from 'react';
-import { 
-  ShoppingBag, 
-  Plus, 
-  Search, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  ShoppingBag,
+  Plus,
+  Search,
   ExternalLink,
   MapPin,
   Clock,
   User,
-  Tag,
-  Eye,
-  ArrowRight
+  Eye
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
@@ -41,13 +39,56 @@ const Marketplace = ({ communityId: propCommunityId }) => {
     'Other'
   ];
 
-  const conditions = [
-    'New',
-    'Like New',
-    'Good',
-    'Fair',
-    'Poor'
-  ];
+  const loadMarketplaceItems = useCallback(async () => {
+    try {
+      setLoading(true);
+      if (!currentCommunity) {
+        setItems([]);
+        setTotalCount(0);
+        return;
+      }
+
+      // Strict hub isolation: only marketplace items tied to this community.
+      const url = `/api/hub/marketplace?communityId=${encodeURIComponent(currentCommunity)}`;
+
+      const response = await authenticatedFetch(url);
+      const result = await response.json();
+
+      if (response.ok) {
+        let communityItems = Array.isArray(result.items) ? result.items : [];
+
+        if (searchTerm.trim()) {
+          const query = searchTerm.toLowerCase();
+          communityItems = communityItems.filter((item) => {
+            const title = typeof item?.title === 'string' ? item.title.toLowerCase() : '';
+            const description = typeof item?.description === 'string' ? item.description.toLowerCase() : '';
+            return title.includes(query) || description.includes(query);
+          });
+        }
+
+        if (categoryFilter !== 'all') {
+          communityItems = communityItems.filter((item) => {
+            const category = typeof item?.category === 'string' ? item.category.toLowerCase() : '';
+            return category === categoryFilter.toLowerCase();
+          });
+        }
+
+        setItems(communityItems);
+        setTotalCount(communityItems.length);
+      } else {
+        setItems([]);
+        setTotalCount(0);
+        toast.error(typeof result?.error === 'string' ? result.error : 'Failed to load community marketplace');
+      }
+    } catch (error) {
+      console.error('Error loading marketplace items:', error);
+      setItems([]);
+      setTotalCount(0);
+      toast.error('Failed to load community marketplace');
+    } finally {
+      setLoading(false);
+    }
+  }, [categoryFilter, currentCommunity, searchTerm]);
 
   // Get current community and location
   useEffect(() => {
@@ -88,41 +129,16 @@ const Marketplace = ({ communityId: propCommunityId }) => {
     if (currentCommunity) {
       loadMarketplaceItems();
     }
-  }, [currentCommunity]);
-
-  const loadMarketplaceItems = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch from main marketplace API with location filter
-      let url = '/api/marketplace?limit=50';
-      if (communityLocation) {
-        url += `&location=${encodeURIComponent(communityLocation)}`;
-      }
-      if (searchTerm) {
-        url += `&search=${encodeURIComponent(searchTerm)}`;
-      }
-      if (categoryFilter !== 'all') {
-        url += `&category=${encodeURIComponent(categoryFilter)}`;
-      }
-      
-      const response = await authenticatedFetch(url);
-      const result = await response.json();
-
-      if (response.ok) {
-        setItems(result.data || []);
-        setTotalCount(result.pagination?.total || 0);
-      }
-    } catch (error) {
-      console.error('Error loading marketplace items:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [currentCommunity, loadMarketplaceItems]);
 
   const handleCreateNewItem = () => {
-    // Navigate to main marketplace to create new item
-    router.push('/marketplace?create=true');
+    if (!currentCommunity) {
+      toast.error('Please select a community first');
+      return;
+    }
+
+    const returnTo = '/dashboard/community/marketplace';
+    router.push(`/dashboard?tab=post-ad&type=marketplace&communityId=${encodeURIComponent(currentCommunity)}&returnTo=${encodeURIComponent(returnTo)}`);
   };
 
   const formatDate = (date) => {
@@ -134,6 +150,15 @@ const Marketplace = ({ communityId: propCommunityId }) => {
   const formatPrice = (price) => {
     if (!price) return 'Free';
     return `₦${price.toLocaleString()}`;
+  };
+
+  const getPrimaryImageUrl = (item) => {
+    const imageList = Array.isArray(item?.imageUrls) ? item.imageUrls : [];
+    const firstImage = imageList[0];
+    if (typeof firstImage === 'string' && firstImage.trim()) {
+      return firstImage.trim();
+    }
+    return '/api/placeholder/400/300';
   };
 
   // Items are already filtered server-side, so just use them directly
@@ -148,7 +173,7 @@ const Marketplace = ({ communityId: propCommunityId }) => {
       
       return () => clearTimeout(delayedSearch);
     }
-  }, [searchTerm, categoryFilter, currentCommunity]);
+  }, [searchTerm, categoryFilter, currentCommunity, loadMarketplaceItems]);
 
   return (
     <div className="space-y-6">
@@ -219,7 +244,7 @@ const Marketplace = ({ communityId: propCommunityId }) => {
               : communityLocation ? `No marketplace items found near ${communityLocation}` : 'No marketplace items found'}
           </p>
           <button
-            onClick={() => router.push('/marketplace?create=true')}
+            onClick={handleCreateNewItem}
             className="mt-4 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
           >
             Post the first item!
@@ -228,12 +253,12 @@ const Marketplace = ({ communityId: propCommunityId }) => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredItems.map((item) => (
-            <div key={item.id} className="bg-white rounded-lg shadow hover:shadow-lg transition">
+            <div key={item.id} className="bg-white rounded-lg shadow hover:shadow-lg transition flex flex-col h-full">
               {/* Item Image */}
               <div className="h-48 bg-gray-200 rounded-t-lg overflow-hidden">
                 {item.imageUrls && item.imageUrls.length > 0 ? (
                   <img
-                    src={item.imageUrls[0] || '/api/placeholder/400/300'}
+                    src={getPrimaryImageUrl(item)}
                     alt={item.title}
                     className="w-full h-full object-cover"
                     loading="lazy"
@@ -248,7 +273,7 @@ const Marketplace = ({ communityId: propCommunityId }) => {
                 )}
               </div>
               
-              <div className="p-4">
+              <div className="p-4 flex flex-col flex-1">
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="font-semibold text-gray-900 text-lg">{item.title}</h3>
                   <span className="text-lg font-bold text-green-600">
@@ -287,7 +312,7 @@ const Marketplace = ({ communityId: propCommunityId }) => {
                   </div>
                 )}
                 
-                <div className="mt-3 pt-3 border-t">
+                <div className="mt-auto pt-3 border-t">
                   <button 
                     onClick={() => router.push(`/marketplace/${item.slug || item.id}`)}
                     className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition text-sm flex items-center justify-center"

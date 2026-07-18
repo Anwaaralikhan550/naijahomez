@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Droplets, 
   Truck, 
@@ -41,7 +41,7 @@ const WaterScheduling = ({ communityId }) => {
   });
 
   // Mock water vendors data (in real app, this would come from a database)
-  const mockVendors = [
+  const mockVendors = useMemo(() => [
     {
       id: 'v1',
       name: 'Pure Water Lagos',
@@ -78,16 +78,9 @@ const WaterScheduling = ({ communityId }) => {
       availability: ['morning'],
       isVerified: false
     }
-  ];
+  ], []);
 
-  useEffect(() => {
-    if (communityId) {
-      loadWaterServices();
-      setVendors(mockVendors);
-    }
-  }, [communityId]);
-
-  const loadWaterServices = async () => {
+  const loadWaterServices = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/smart-services?communityId=${communityId}&type=water`);
       const result = await response.json();
@@ -103,7 +96,14 @@ const WaterScheduling = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadWaterServices();
+      setVendors(mockVendors);
+    }
+  }, [communityId, loadWaterServices, mockVendors]);
 
   const handleCreateService = async (e) => {
     e.preventDefault();

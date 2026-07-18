@@ -4,6 +4,7 @@ import {
   MessageCircle,
   Send,
   Search,
+  Users,
   User,
   MoreVertical,
   ArrowLeft,
@@ -22,9 +23,6 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
 import toast from 'react-hot-toast';
-import { useFirestoreUpdates } from '@/hooks/useFirestoreQuery';
-import { db } from '@/lib/firebase-client';
-import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 
 const PrivateMessages = ({ communityId }) => {
   const { user } = useAuth();
@@ -37,87 +35,39 @@ const PrivateMessages = ({ communityId }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [availableMembers, setAvailableMembers] = useState([]);
+  const [membersLoading, setMembersLoading] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Create Firestore queries for real-time updates
-  // Note: removed orderBy to avoid composite index requirement; sorting done client-side
-  const conversationsQuery = communityId && user?.uid
-    ? query(
-        collection(db, 'privateConversations'),
-        where('participantIds', 'array-contains', user.uid),
-        where('communityId', '==', communityId)
-      )
-    : null;
+  const getMemberDisplayName = (member) => {
+    if (typeof member?.userName === 'string' && member.userName.trim()) return member.userName.trim();
+    if (typeof member?.userEmail === 'string' && member.userEmail.trim()) return member.userEmail.trim();
+    return 'Member';
+  };
 
-  const messagesQuery = selectedConversation
-    ? query(
-        collection(db, 'privateMessages'),
-        where('conversationId', '==', selectedConversation.id),
-        orderBy('createdAt', 'asc'),
-        limit(50)
-      )
-    : null;
+  const getMemberEmail = (member) => {
+    if (typeof member?.userEmail === 'string' && member.userEmail.trim()) return member.userEmail.trim();
+    return '';
+  };
 
-  // Use Firestore client SDK for real-time conversation updates
-  const { isListening: conversationsListening } = useFirestoreUpdates(
-    conversationsQuery,
-    (changes) => {
-      setConversations(currentConversations => {
-        let updated = [...currentConversations];
-        
-        changes.forEach(change => {
-          if (change.type === 'added') {
-            const exists = updated.some(c => c.id === change.doc.id);
-            if (!exists) {
-              updated.push(change.doc);
-            }
-          } else if (change.type === 'modified') {
-            const index = updated.findIndex(c => c.id === change.doc.id);
-            if (index !== -1) {
-              updated[index] = change.doc;
-            }
-          }
-        });
-        
-        return updated.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-      });
-    }
-  );
+  const safeErrorMessage = (error, fallback) => {
+    if (typeof error?.message === 'string' && error.message.trim()) return error.message;
+    if (typeof error === 'string' && error.trim()) return error;
+    return fallback;
+  };
 
-  // Use Firestore client SDK for real-time message updates
-  const { isListening: messagesListening } = useFirestoreUpdates(
-    messagesQuery,
-    (changes) => {
-      setMessages(currentMessages => {
-        let updated = [...currentMessages];
-        
-        changes.forEach(change => {
-          if (change.type === 'added') {
-            const exists = updated.some(m => m.id === change.doc.id);
-            if (!exists) {
-              updated.push(change.doc);
-              
-              // Show notification for new private messages from others
-              if (change.doc.senderId !== user?.uid) {
-                toast(`📨 New message from ${change.doc.senderName}`, {
-                  duration: 4000
-                });
-              }
-            }
-          }
-        });
-        
-        return updated.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      });
-    }
-  );
+  const getConversationName = (conversation) => {
+    const name = conversation?.otherParticipant?.name;
+    if (typeof name === 'string' && name.trim()) return name.trim();
+    return 'Member';
+  };
 
   useEffect(() => {
     if (communityId && user) {
       loadConversations();
       loadAvailableMembers();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [communityId, user]);
 
   useEffect(() => {
@@ -125,6 +75,7 @@ const PrivateMessages = ({ communityId }) => {
       loadMessages(selectedConversation.id);
       markAsRead(selectedConversation.id);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversation]);
 
   useEffect(() => {
@@ -146,6 +97,7 @@ const PrivateMessages = ({ communityId }) => {
 
   const loadAvailableMembers = async () => {
     try {
+      setMembersLoading(true);
       const response = await authenticatedFetch(`/api/hub/members?communityId=${communityId}`);
       const result = await response.json();
 
@@ -153,9 +105,17 @@ const PrivateMessages = ({ communityId }) => {
         // Filter out current user
         const members = (result.members || []).filter(member => member.userId !== user.uid);
         setAvailableMembers(members);
+      } else {
+        setAvailableMembers([]);
+        const message = typeof result?.error === 'string' ? result.error : 'Failed to load members';
+        toast.error(message);
       }
     } catch (error) {
       console.error('Error loading members:', error);
+      setAvailableMembers([]);
+      toast.error('Failed to load members');
+    } finally {
+      setMembersLoading(false);
     }
   };
 
@@ -175,7 +135,34 @@ const PrivateMessages = ({ communityId }) => {
     }
   };
 
+  useEffect(() => {
+    if (!communityId || !user?.uid) return undefined;
+    const interval = setInterval(() => {
+      loadConversations();
+    }, 10000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [communityId, user?.uid]);
+
+  useEffect(() => {
+    if (!selectedConversation?.id) return undefined;
+    const interval = setInterval(() => {
+      loadMessages(selectedConversation.id);
+    }, 8000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConversation?.id]);
+
   const startNewConversation = async (memberId, memberName) => {
+    if (!memberId) {
+      toast.error('Unable to start chat: member ID is missing');
+      return;
+    }
+
+    const senderName = user?.displayName || user?.email || 'You';
+    const safeMemberName =
+      (typeof memberName === 'string' && memberName.trim()) ? memberName.trim() : 'Member';
+
     try {
       const response = await authenticatedFetch('/api/hub/messages/conversations', {
         method: 'POST',
@@ -183,12 +170,12 @@ const PrivateMessages = ({ communityId }) => {
           action: 'create_conversation',
           communityId,
           participantIds: [user.uid, memberId],
-          participantNames: [user.displayName || user.email, memberName],
+          participantNames: [senderName, safeMemberName],
           createdBy: user.uid
         })
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       
       if (response.ok) {
         setShowNewChatModal(false);
@@ -196,15 +183,18 @@ const PrivateMessages = ({ communityId }) => {
         // Select the new conversation
         const newConversation = {
           id: result.conversationId,
-          otherParticipant: { id: memberId, name: memberName },
+          otherParticipant: { id: memberId, name: safeMemberName },
           lastMessage: null,
           unreadCount: 0,
           updatedAt: new Date()
         };
         setSelectedConversation(newConversation);
+      } else {
+        const message = typeof result?.error === 'string' ? result.error : 'Failed to start conversation';
+        toast.error(message);
       }
     } catch (error) {
-      toast.error('Failed to start conversation');
+      toast.error(safeErrorMessage(error, 'Failed to start conversation'));
     }
   };
 
@@ -235,7 +225,7 @@ const PrivateMessages = ({ communityId }) => {
         throw new Error('Failed to send message');
       }
     } catch (error) {
-      toast.error(`❌ ${error.message}`);
+      toast.error(safeErrorMessage(error, 'Failed to send message'));
     } finally {
       setSendingMessage(false);
     }
@@ -272,8 +262,8 @@ const PrivateMessages = ({ communityId }) => {
     return date.toLocaleDateString();
   };
 
-  const filteredConversations = conversations.filter(conv =>
-    conv.otherParticipant?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredConversations = conversations.filter((conv) =>
+    getConversationName(conv).toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const ConversationItem = ({ conversation }) => (
@@ -286,7 +276,7 @@ const PrivateMessages = ({ communityId }) => {
       <div className="flex items-center space-x-3">
         <div className="relative">
           <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">
-            {conversation.otherParticipant?.name?.charAt(0)?.toUpperCase() || '?'}
+            {getConversationName(conversation).charAt(0)?.toUpperCase() || '?'}
           </div>
           {conversation.otherParticipant?.isOnline && (
             <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
@@ -296,7 +286,7 @@ const PrivateMessages = ({ communityId }) => {
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <h4 className="font-medium text-gray-900 truncate">
-              {conversation.otherParticipant?.name}
+              {getConversationName(conversation)}
             </h4>
             <span className="text-xs text-gray-500">
               {formatTime(conversation.updatedAt)}
@@ -405,18 +395,18 @@ const PrivateMessages = ({ communityId }) => {
                 <div className="flex items-center space-x-3">
                   <button
                     onClick={() => setSelectedConversation(null)}
-                    className="lg:hidden text-gray-600 hover:text-gray-800"
+                    className="lg:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-700 hover:text-white transition-colors"
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
                   
                   <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">
-                    {selectedConversation.otherParticipant?.name?.charAt(0)?.toUpperCase() || '?'}
+                    {getConversationName(selectedConversation).charAt(0)?.toUpperCase() || '?'}
                   </div>
                   
                   <div>
                     <h3 className="font-medium text-gray-900">
-                      {selectedConversation.otherParticipant?.name}
+                      {getConversationName(selectedConversation)}
                     </h3>
                     <p className="text-sm text-gray-500">
                       {selectedConversation.otherParticipant?.isOnline ? 'Online' : 'Offline'}
@@ -425,13 +415,13 @@ const PrivateMessages = ({ communityId }) => {
                 </div>
                 
                 <div className="flex items-center space-x-2">
-                  <button className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg">
+                  <button className="p-2 text-gray-600 hover:bg-gray-700 hover:text-white rounded-lg transition-colors">
                     <Phone className="w-4 h-4" />
                   </button>
-                  <button className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg">
+                  <button className="p-2 text-gray-600 hover:bg-gray-700 hover:text-white rounded-lg transition-colors">
                     <Video className="w-4 h-4" />
                   </button>
-                  <button className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg">
+                  <button className="p-2 text-gray-600 hover:bg-gray-700 hover:text-white rounded-lg transition-colors">
                     <Info className="w-4 h-4" />
                   </button>
                 </div>
@@ -448,7 +438,7 @@ const PrivateMessages = ({ communityId }) => {
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   <MessageCircle className="w-12 h-12 mb-3 text-gray-300" />
                   <p>Start the conversation!</p>
-                  <p className="text-sm">Send your first message to {selectedConversation.otherParticipant?.name}</p>
+                  <p className="text-sm">Send your first message to {getConversationName(selectedConversation)}</p>
                 </div>
               ) : (
                 <div>
@@ -474,7 +464,7 @@ const PrivateMessages = ({ communityId }) => {
                       }
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                    placeholder={`Message ${selectedConversation.otherParticipant?.name}...`}
+                    placeholder={`Message ${getConversationName(selectedConversation)}...`}
                     rows={1}
                     disabled={sendingMessage}
                   />
@@ -483,7 +473,7 @@ const PrivateMessages = ({ communityId }) => {
                 <div className="flex items-center space-x-1">
                   <button
                     type="button"
-                    className="p-2 text-gray-400 hover:text-gray-600"
+                    className="p-2 text-gray-400 hover:bg-gray-700 hover:text-white rounded-lg transition-colors"
                     title="Attach file"
                   >
                     <Paperclip className="w-5 h-5" />
@@ -491,7 +481,7 @@ const PrivateMessages = ({ communityId }) => {
                   
                   <button
                     type="button"
-                    className="p-2 text-gray-400 hover:text-gray-600"
+                    className="p-2 text-gray-400 hover:bg-gray-700 hover:text-white rounded-lg transition-colors"
                     title="Add emoji"
                   >
                     <Smile className="w-5 h-5" />
@@ -529,29 +519,50 @@ const PrivateMessages = ({ communityId }) => {
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
             <div className="p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Start New Conversation</h3>
-              
+
+              <p className="text-sm text-gray-600 mb-4">
+                Select a member to start a chat. The message input will appear below once the conversation opens.
+              </p>
+
               <div className="space-y-3 max-h-64 overflow-y-auto">
-                {availableMembers.map((member) => (
-                  <div
-                    key={member.userId}
-                    onClick={() => startNewConversation(member.userId, member.userName)}
-                    className="flex items-center p-3 hover:bg-gray-50 rounded-lg cursor-pointer transition"
-                  >
-                    <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium mr-3">
-                      {member.userName?.charAt(0)?.toUpperCase() || '?'}
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900">{member.userName}</h4>
-                      <p className="text-sm text-gray-600">{member.userEmail}</p>
-                    </div>
+                {membersLoading ? (
+                  <div className="py-8 text-center text-sm text-gray-500">Loading members...</div>
+                ) : availableMembers.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <Users className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+                    <p className="text-sm text-gray-500">
+                      No community members yet. Invite someone to start the conversation!
+                    </p>
+                    <button
+                      onClick={loadAvailableMembers}
+                      className="mt-3 text-sm text-blue-600 hover:underline"
+                    >
+                      Reload members
+                    </button>
                   </div>
-                ))}
+                ) : (
+                  availableMembers.map((member) => (
+                    <div
+                      key={member.userId}
+                      onClick={() => startNewConversation(member.userId, getMemberDisplayName(member))}
+                      className="flex items-center p-3 hover:bg-gray-50 rounded-lg cursor-pointer transition"
+                    >
+                      <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium mr-3">
+                        {getMemberDisplayName(member)?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">{getMemberDisplayName(member)}</h4>
+                        <p className="text-sm text-gray-600">{getMemberEmail(member)}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
               
               <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowNewChatModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition"
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-800 hover:text-white transition-colors"
                 >
                   Cancel
                 </button>
@@ -565,3 +576,4 @@ const PrivateMessages = ({ communityId }) => {
 };
 
 export default PrivateMessages;
+

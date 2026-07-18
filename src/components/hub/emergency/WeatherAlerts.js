@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Cloud, 
   Droplets, 
@@ -48,14 +48,7 @@ const WeatherAlerts = ({ communityId }) => {
     expiresAt: ''
   });
 
-  useEffect(() => {
-    if (communityId) {
-      loadWeatherAlerts();
-      loadWeatherData();
-    }
-  }, [communityId]);
-
-  const loadWeatherAlerts = async () => {
+  const loadWeatherAlerts = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/emergency-alerts?communityId=${communityId}&type=weather`);
       const result = await response.json();
@@ -68,9 +61,9 @@ const WeatherAlerts = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
 
-  const loadWeatherData = () => {
+  const loadWeatherData = useCallback(() => {
     // In a real implementation, this would fetch from a weather API
     // For now, we'll simulate Lagos weather conditions
     const conditions = [
@@ -81,14 +74,21 @@ const WeatherAlerts = ({ communityId }) => {
     ];
     
     const randomWeather = conditions[Math.floor(Math.random() * conditions.length)];
-    setCurrentWeather({
-      ...currentWeather,
+    setCurrentWeather((prev) => ({
+      ...prev,
       temperature: randomWeather.temp,
       condition: randomWeather.condition,
       rainChance: randomWeather.rain,
       description: randomWeather.desc
-    });
-  };
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (communityId) {
+      loadWeatherAlerts();
+      loadWeatherData();
+    }
+  }, [communityId, loadWeatherAlerts, loadWeatherData]);
 
   const createAlert = async (e) => {
     e.preventDefault();

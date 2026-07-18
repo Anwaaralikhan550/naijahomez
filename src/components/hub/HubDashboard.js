@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Building2,
   Users,
@@ -85,28 +85,7 @@ const HubDashboard = ({ accessCodeData }) => {
     management: false
   });
 
-  // Initialize community and role data
-  useEffect(() => {
-    console.log('useEffect triggered - user:', user?.uid, 'accessCodeData:', accessCodeData);
-    if (accessCodeData) {
-      // User authenticated with access code
-      setCurrentCommunity(accessCodeData.communityId);
-      setUserRole(accessCodeData.role);
-      loadCommunityName(accessCodeData.communityId);
-    } else if (user?.uid) {
-      // User authenticated with email/password - load their communities
-      console.log('Loading communities for user:', user.uid);
-      loadUserCommunities();
-      loadUserJoinRequests();
-    } else {
-      // User is null/signed out - clear state
-      setCurrentCommunity(null);
-      setUserRole(null);
-      setUserCommunities([]);
-    }
-  }, [user, accessCodeData]);
-
-  const loadCommunityName = async (communityId) => {
+  const loadCommunityName = useCallback(async (communityId) => {
     try {
       const response = await authenticatedFetch(`/api/hub/communities?id=${communityId}`);
       const result = await response.json();
@@ -116,19 +95,20 @@ const HubDashboard = ({ accessCodeData }) => {
     } catch (error) {
       console.error('Error loading community name:', error);
     }
-  };
+  }, []);
 
-  const loadUserCommunities = async () => {
-    console.log('loadUserCommunities called for user:', user?.uid);
+  const loadUserCommunities = useCallback(async () => {
+    const currentUserId = user?.uid;
+    console.log('loadUserCommunities called for user:', currentUserId);
     
-    if (!user?.uid) {
+    if (!currentUserId) {
       console.log('No user.uid available, skipping community loading');
       return;
     }
     
     try {
       // Load user's communities
-      const userResponse = await authenticatedFetch(`/api/hub/communities?type=user&userId=${user.uid}`);
+      const userResponse = await authenticatedFetch(`/api/hub/communities?type=user&userId=${currentUserId}`);
       console.log('API response status:', userResponse.status);
       
       if (!userResponse.ok) {
@@ -180,13 +160,14 @@ const HubDashboard = ({ accessCodeData }) => {
         console.error('Failed to load public communities as fallback:', publicError);
       }
     }
-  };
+  }, [user?.uid]);
 
   // Load user's join requests for browse communities
-  const loadUserJoinRequests = async () => {
-    if (!user?.uid) return;
+  const loadUserJoinRequests = useCallback(async () => {
+    const currentUserId = user?.uid;
+    if (!currentUserId) return;
     try {
-      const response = await authenticatedFetch(`/api/hub/join-requests?userId=${user.uid}`);
+      const response = await authenticatedFetch(`/api/hub/join-requests?userId=${currentUserId}`);
       if (response.ok) {
         const result = await response.json();
         setJoinRequests(result.requests || []);
@@ -194,7 +175,28 @@ const HubDashboard = ({ accessCodeData }) => {
     } catch (error) {
       console.error('Error loading user join requests:', error);
     }
-  };
+  }, [user?.uid]);
+
+  // Initialize community and role data
+  useEffect(() => {
+    console.log('useEffect triggered - user:', user?.uid, 'accessCodeData:', accessCodeData);
+    if (accessCodeData) {
+      // User authenticated with access code
+      setCurrentCommunity(accessCodeData.communityId);
+      setUserRole(accessCodeData.role);
+      loadCommunityName(accessCodeData.communityId);
+    } else if (user?.uid) {
+      // User authenticated with email/password - load their communities
+      console.log('Loading communities for user:', user.uid);
+      loadUserCommunities();
+      loadUserJoinRequests();
+    } else {
+      // User is null/signed out - clear state
+      setCurrentCommunity(null);
+      setUserRole(null);
+      setUserCommunities([]);
+    }
+  }, [accessCodeData, loadCommunityName, loadUserCommunities, loadUserJoinRequests, user?.uid]);
 
   // Get button state for a community in browse section
   const getJoinButtonState = (communityId) => {
@@ -264,7 +266,7 @@ const HubDashboard = ({ accessCodeData }) => {
       id: 'main',
       label: '',
       items: [
-        { id: 'dashboard', label: 'Dashboard', icon: Building2 },
+        { id: 'dashboard', label: 'Community Hub', icon: Building2 },
         { id: 'my-communities', label: 'My Communities', icon: Building2 },
         { id: 'browse-communities', label: 'Browse Communities', icon: Search }
       ]

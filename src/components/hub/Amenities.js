@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, 
   Clock, 
@@ -67,16 +67,7 @@ const Amenities = ({ communityId: propCommunityId }) => {
     loadCommunity();
   }, [user, propCommunityId]);
 
-  useEffect(() => {
-    if (currentCommunity) {
-      loadAmenities();
-      if (user) {
-        loadUserBookings();
-      }
-    }
-  }, [currentCommunity, user]);
-
-  const loadAmenities = async () => {
+  const loadAmenities = useCallback(async () => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`/api/hub/amenities?communityId=${currentCommunity}`);
@@ -90,9 +81,9 @@ const Amenities = ({ communityId: propCommunityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentCommunity]);
 
-  const loadUserBookings = async () => {
+  const loadUserBookings = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/amenities?action=bookings&userId=${user.uid}&communityId=${currentCommunity}`);
       const result = await response.json();
@@ -103,7 +94,16 @@ const Amenities = ({ communityId: propCommunityId }) => {
     } catch (error) {
       console.error('Error loading bookings:', error);
     }
-  };
+  }, [currentCommunity, user?.uid]);
+
+  useEffect(() => {
+    if (currentCommunity) {
+      loadAmenities();
+      if (user) {
+        loadUserBookings();
+      }
+    }
+  }, [currentCommunity, user, loadAmenities, loadUserBookings]);
 
   const handleBookAmenity = (amenity) => {
     setSelectedAmenity(amenity);

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   MessageCircle,
   Send,
@@ -22,9 +22,6 @@ import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
 import toast from 'react-hot-toast';
 import { useRealtimeChat } from '@/hooks/useRealtime';
-import { useFirestoreUpdates } from '@/hooks/useFirestoreQuery';
-import { db } from '@/lib/firebase-client';
-import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 
 const CommunityChat = ({ communityId }) => {
   const { user } = useAuth();
@@ -59,62 +56,33 @@ const CommunityChat = ({ communityId }) => {
 
   const commonEmojis = ['😊', '😂', '👍', '👎', '❤️', '🔥', '👏', '🎉', '😢', '😮'];
 
-  // Create Firestore query for real-time chat updates
-  const messagesQuery = communityId && selectedChannel
-    ? query(
-        collection(db, 'chatMessages'),
-        where('communityId', '==', communityId),
-        where('channelId', '==', selectedChannel),
-        orderBy('createdAt', 'asc'),
-        limit(100)
-      )
-    : null;
+  const loadMessages = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await authenticatedFetch(`/api/hub/chat/messages?communityId=${communityId}&channel=${selectedChannel}&limit=50`);
+      const result = await response.json();
 
-  // Use Firestore client SDK for real-time updates
-  const { isListening, error: realtimeError } = useFirestoreUpdates(
-    messagesQuery,
-    (changes) => {
-      // Handle real-time updates
-      setMessages(currentMessages => {
-        let updatedMessages = [...currentMessages];
-        
-        changes.forEach(change => {
-          if (change.type === 'added') {
-            // Add new message
-            const exists = updatedMessages.some(m => m.id === change.doc.id);
-            if (!exists) {
-              updatedMessages.push(change.doc);
-              
-              // Show notification for new messages from others
-              if (change.doc.authorId !== user?.uid) {
-                toast(`💬 ${change.doc.authorName}: ${change.doc.content.substring(0, 50)}...`, {
-                  duration: 3000
-                });
-              }
-            }
-          } else if (change.type === 'modified') {
-            // Update existing message
-            const index = updatedMessages.findIndex(m => m.id === change.doc.id);
-            if (index !== -1) {
-              updatedMessages[index] = change.doc;
-            }
-          } else if (change.type === 'removed') {
-            // Remove deleted message
-            updatedMessages = updatedMessages.filter(m => m.id !== change.doc.id);
-          }
-        });
-        
-        // Sort messages by creation date
-        return updatedMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      });
+      if (response.ok) {
+        setMessages(result.messages || []);
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    } finally {
+      setLoading(false);
     }
-  );
+  }, [communityId, selectedChannel]);
 
   useEffect(() => {
     if (communityId && selectedChannel) {
       loadMessages(); // Load initial messages once
     }
-  }, [communityId, selectedChannel]);
+  }, [communityId, selectedChannel, loadMessages]);
+
+  useEffect(() => {
+    if (!communityId || !selectedChannel) return undefined;
+    const interval = setInterval(loadMessages, 8000);
+    return () => clearInterval(interval);
+  }, [communityId, selectedChannel, loadMessages]);
 
   useEffect(() => {
     scrollToBottom();
@@ -139,22 +107,6 @@ const CommunityChat = ({ communityId }) => {
       }
     }
   }, [newMessages, user?.uid]);
-
-  const loadMessages = async () => {
-    try {
-      setLoading(true);
-      const response = await authenticatedFetch(`/api/hub/chat/messages?communityId=${communityId}&channel=${selectedChannel}&limit=50`);
-      const result = await response.json();
-
-      if (response.ok) {
-        setMessages(result.messages || []);
-      }
-    } catch (error) {
-      console.error('Error loading messages:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const sendMessage = async (e) => {
     e.preventDefault();

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Bell, 
   BellOff, 
@@ -14,9 +14,6 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
 import toast from 'react-hot-toast';
-import { useFirestoreUpdates } from '@/hooks/useFirestoreQuery';
-import { db } from '@/lib/firebase-client';
-import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 
 const Notifications = ({ communityId }) => {
   const { user } = useAuth();
@@ -24,59 +21,7 @@ const Notifications = ({ communityId }) => {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('all'); // all, unread, read
 
-  // Create Firestore query for real-time notification updates
-  const notificationsQuery = user && communityId
-    ? query(
-        collection(db, 'notifications'),
-        where('communityId', '==', communityId),
-        where('recipientId', '==', user.uid),
-        orderBy('createdAt', 'desc'),
-        limit(50)
-      )
-    : null;
-
-  // Use Firestore client SDK for real-time notification updates
-  const { isListening } = useFirestoreUpdates(
-    notificationsQuery,
-    (changes) => {
-      // Handle real-time notification updates
-      setNotifications(currentNotifications => {
-        let updated = [...currentNotifications];
-        
-        changes.forEach(change => {
-          if (change.type === 'added') {
-            // Add new notification if it doesn't exist
-            const exists = updated.some(n => n.id === change.doc.id);
-            if (!exists) {
-              updated.unshift(change.doc);
-              // Show toast for new notification
-              toast(change.doc.message || 'New notification', {
-                icon: '🔔',
-                duration: 4000
-              });
-            }
-          } else if (change.type === 'modified') {
-            const index = updated.findIndex(n => n.id === change.doc.id);
-            if (index !== -1) {
-              updated[index] = change.doc;
-            }
-          } else if (change.type === 'removed') {
-            updated = updated.filter(n => n.id !== change.doc.id);
-          }
-        });
-        
-        return updated.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      });
-    }
-  );
-
-  useEffect(() => {
-    if (user && communityId) {
-      loadNotifications(); // Load initial notifications
-    }
-  }, [user, communityId]);
-
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`/api/hub/notifications?communityId=${communityId}&userId=${user.uid}`);
@@ -90,7 +35,19 @@ const Notifications = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId, user?.uid]);
+
+  useEffect(() => {
+    if (user && communityId) {
+      loadNotifications(); // Load initial notifications
+    }
+  }, [user, communityId, loadNotifications]);
+
+  useEffect(() => {
+    if (!user || !communityId) return undefined;
+    const interval = setInterval(loadNotifications, 10000);
+    return () => clearInterval(interval);
+  }, [user, communityId, loadNotifications]);
 
   const markAsRead = async (notificationId) => {
     try {

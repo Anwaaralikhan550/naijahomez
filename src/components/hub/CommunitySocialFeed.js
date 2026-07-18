@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Plus,
   Heart,
@@ -29,15 +29,16 @@ import {
   Clock3,
   MapPin as LocationIcon,
   ArrowRight,
-  MessageSquare
+  MessageSquare,
+  Share2
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
 import toast from 'react-hot-toast';
 import PullToRefresh from '@/components/shared/PullToRefresh';
-import { useFirestoreUpdates } from '@/hooks/useFirestoreQuery';
-import { db } from '@/lib/firebase-client';
-import { collection, query, where, orderBy, limit } from 'firebase/firestore';
+
+const MAX_POST_CONTENT_LENGTH = 3000;
+const MAX_COMMENT_CONTENT_LENGTH = 1000;
 
 const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
   const { user } = useAuth();
@@ -51,6 +52,12 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [userAds, setUserAds] = useState([]);
   const [loadingAds, setLoadingAds] = useState(false);
+  const [expandedCommentsByPost, setExpandedCommentsByPost] = useState({});
+  const [commentsByPost, setCommentsByPost] = useState({});
+  const [commentsLoadingByPost, setCommentsLoadingByPost] = useState({});
+  const [commentDraftByPost, setCommentDraftByPost] = useState({});
+  const [editingComment, setEditingComment] = useState(null);
+  const [showDeleteCommentConfirm, setShowDeleteCommentConfirm] = useState(null);
   const [newPostData, setNewPostData] = useState({
     content: '',
     type: 'text', // text, image, event, poll, announcement
@@ -122,9 +129,11 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
         }
         
         setPosts(filteredPosts);
+        setConnectionStatus('connected');
       }
     } catch (error) {
       console.error('Error loading posts:', error);
+      setConnectionStatus('error');
       toast.error('Failed to load posts');
     } finally {
       setLoading(false);
@@ -135,65 +144,11 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
     loadPosts();
   }, [loadPosts]);
 
-  // Create Firestore query for real-time social feed updates (memoized)
-  const socialFeedQuery = useMemo(() => {
-    return communityId
-      ? query(
-          collection(db, 'socialPosts'),
-          where('communityId', '==', communityId),
-          where('isActive', '==', true),
-          orderBy('createdAt', 'desc'),
-          limit(50)
-        )
-      : null;
-  }, [communityId]);
-
-  // Memoized callback for handling Firestore updates
-  const handleFirestoreUpdates = useCallback((changes) => {
-    setConnectionStatus('connected');
-    
-    setPosts(currentPosts => {
-      let updatedPosts = [...currentPosts];
-      
-      changes.forEach(change => {
-        if (change.type === 'added') {
-          // Add new post if it doesn't already exist
-          const existingIndex = updatedPosts.findIndex(p => p.id === change.doc.id);
-          if (existingIndex === -1) {
-            updatedPosts = [change.doc, ...updatedPosts];
-            
-            // Show notification for new posts from others
-            if (change.doc.authorId !== user?.uid) {
-              toast(`📝 New post from ${change.doc.authorName}`, {
-                duration: 3000
-              });
-            }
-          }
-        } else if (change.type === 'modified') {
-          const index = updatedPosts.findIndex(p => p.id === change.doc.id);
-          if (index !== -1) {
-            updatedPosts[index] = change.doc;
-          }
-        } else if (change.type === 'removed') {
-          updatedPosts = updatedPosts.filter(p => p.id !== change.doc.id);
-        }
-      });
-      
-      return updatedPosts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    });
-  }, [user?.uid]);
-
-  // Use Firestore client SDK for real-time updates
-  const { isListening } = useFirestoreUpdates(
-    socialFeedQuery,
-    handleFirestoreUpdates
-  );
-
-  // Set connection status based on listener state
   useEffect(() => {
-    setConnectionStatus(isListening ? 'connected' : 'disconnected');
-  }, [isListening]);
-
+    if (!communityId) return undefined;
+    const interval = setInterval(loadPosts, 10000);
+    return () => clearInterval(interval);
+  }, [communityId, loadPosts]);
 
   const loadUserAds = useCallback(async () => {
     if (!user?.uid) return;
@@ -229,6 +184,11 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
     
     if (!newPostData.content.trim()) {
       toast.error('Post content is required');
+      return false;
+    }
+
+    if (newPostData.content.trim().length > MAX_POST_CONTENT_LENGTH) {
+      toast.error(`Post must be ${MAX_POST_CONTENT_LENGTH} characters or less`);
       return;
     }
 
@@ -293,8 +253,12 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
       toast.error('Failed to like post');
     }
   };
+  const commentOnPost = async (postId, content) => {
+    if (content.trim().length > MAX_COMMENT_CONTENT_LENGTH) {
+      toast.error(`Comment must be ${MAX_COMMENT_CONTENT_LENGTH} characters or less`);
+      return false;
+    }
 
-  const commentOnPost = async (postId, content) => {
     try {
       const response = await authenticatedFetch(`/api/hub/social-feed?userId=${user.uid}`, {
         method: 'POST',
@@ -308,16 +272,19 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
       });
 
       if (response.ok) {
-        toast.success('💬 Comment added!');
+        toast.success('Comment added!');
         // SSE will automatically update the posts
-      } else {
-        const error = await response.json();
-        console.error('Comment failed:', error);
-        toast.error(`Failed to add comment: ${error.error || 'Unknown error'}`);
+        return true;
       }
+
+      const error = await response.json();
+      console.error('Comment failed:', error);
+      toast.error(`Failed to add comment: ${error.error || 'Unknown error'}`);
+      return false;
     } catch (error) {
       console.error('Comment error:', error);
       toast.error('Failed to add comment');
+      return false;
     }
   };
 
@@ -337,6 +304,11 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
   };
 
   const editPost = async (postId, updatedContent) => {
+    if (updatedContent.trim().length > MAX_POST_CONTENT_LENGTH) {
+      toast.error(`Post must be ${MAX_POST_CONTENT_LENGTH} characters or less`);
+      return;
+    }
+
     try {
       const response = await authenticatedFetch(`/api/hub/social-feed?userId=${user.uid}`, {
         method: 'POST',
@@ -384,6 +356,126 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Failed to delete post');
+    }
+  };
+
+  const loadCommentsForPost = async (postId) => {
+    if (commentsLoadingByPost[postId]) return;
+    if (Array.isArray(commentsByPost[postId]) && commentsByPost[postId].length > 0) return;
+
+    try {
+      setCommentsLoadingByPost((prev) => ({ ...prev, [postId]: true }));
+      const response = await authenticatedFetch(`/api/hub/social-feed/comments?postId=${postId}&limit=10`);
+      const result = await response.json();
+
+      if (response.ok) {
+        setCommentsByPost((prev) => ({ ...prev, [postId]: result.comments || [] }));
+      } else {
+        toast.error(result?.error || 'Failed to load comments');
+      }
+    } catch (error) {
+      console.error('Error loading comments:', error);
+      toast.error('Failed to load comments');
+    } finally {
+      setCommentsLoadingByPost((prev) => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  const toggleComments = async (postId) => {
+    const nextOpenState = !expandedCommentsByPost[postId];
+    setExpandedCommentsByPost((prev) => ({ ...prev, [postId]: nextOpenState }));
+
+    if (nextOpenState) {
+      await loadCommentsForPost(postId);
+    }
+  };
+  const submitComment = async (postId) => {
+    const draft = commentDraftByPost[postId] || '';
+    if (!draft.trim()) return;
+
+    const submitted = await commentOnPost(postId, draft);
+    if (!submitted) return;
+
+    const tempComment = {
+      id: `temp-${Date.now()}`,
+      content: draft,
+      authorId: user.uid,
+      authorName: user.displayName || user.email,
+      createdAt: new Date().toISOString()
+    };
+
+    setCommentsByPost((prev) => ({
+      ...prev,
+      [postId]: [...(prev[postId] || []), tempComment]
+    }));
+    setCommentDraftByPost((prev) => ({ ...prev, [postId]: '' }));
+    setExpandedCommentsByPost((prev) => ({ ...prev, [postId]: true }));
+  };
+
+  const updateComment = async (commentId, updatedContent, postId) => {
+    if (!updatedContent.trim()) {
+      toast.error('Comment cannot be empty');
+      return;
+    }
+
+    if (updatedContent.trim().length > MAX_COMMENT_CONTENT_LENGTH) {
+      toast.error(`Comment must be ${MAX_COMMENT_CONTENT_LENGTH} characters or less`);
+      return;
+    }
+
+    try {
+      const response = await authenticatedFetch(`/api/hub/social-feed?userId=${user.uid}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'update_comment',
+          commentId,
+          content: updatedContent.trim()
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to update comment');
+      }
+
+      setCommentsByPost((prev) => ({
+        ...prev,
+        [postId]: (prev[postId] || []).map((comment) =>
+          comment.id === commentId
+            ? { ...comment, content: updatedContent.trim(), editedAt: new Date().toISOString() }
+            : comment
+        )
+      }));
+      setEditingComment(null);
+      toast.success('Comment updated');
+    } catch (error) {
+      toast.error(error.message || 'Failed to update comment');
+    }
+  };
+
+  const deleteComment = async (commentId, postId) => {
+    try {
+      const response = await authenticatedFetch(`/api/hub/social-feed?userId=${user.uid}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'delete_comment',
+          commentId
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to delete comment');
+      }
+
+      setCommentsByPost((prev) => ({
+        ...prev,
+        [postId]: (prev[postId] || []).filter((comment) => comment.id !== commentId)
+      }));
+      setShowDeleteCommentConfirm(null);
+      toast.success('Comment deleted');
+    } catch (error) {
+      toast.error(error.message || 'Failed to delete comment');
     }
   };
 
@@ -909,44 +1001,15 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
   };
 
   const PostCard = ({ post }) => {
-    const [showComments, setShowComments] = useState(false);
-    const [newComment, setNewComment] = useState('');
     const [showActions, setShowActions] = useState(false);
-    const [comments, setComments] = useState(post.comments || []);
-    const [loadingComments, setLoadingComments] = useState(false);
-    
-    
+
+    const showComments = !!expandedCommentsByPost[post.id];
+    const comments = commentsByPost[post.id] || [];
+    const loadingComments = !!commentsLoadingByPost[post.id];
+    const newComment = commentDraftByPost[post.id] || '';
+
     const isLiked = post.likes?.includes(user.uid);
     const PostIcon = getPostTypeIcon(post.type);
-    
-    // Load comments on demand when comment section is opened
-    const loadComments = async () => {
-      if (loadingComments || comments.length > 0) return;
-
-      try {
-        setLoadingComments(true);
-        const response = await authenticatedFetch(`/api/hub/social-feed/comments?postId=${post.id}&limit=10`);
-        const result = await response.json();
-
-        if (response.ok) {
-          setComments(result.comments || []);
-        }
-      } catch (error) {
-        console.error('Error loading comments:', error);
-      } finally {
-        setLoadingComments(false);
-      }
-    };
-    
-    const handleToggleComments = () => {
-      const newShowState = !showComments;
-      setShowComments(newShowState);
-      
-      // Load comments when opening comment section
-      if (newShowState && comments.length === 0) {
-        loadComments();
-      }
-    };
 
     return (
       <div className="bg-white rounded-lg shadow border p-6 mb-4">
@@ -1076,7 +1139,7 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              handleToggleComments();
+              toggleComments(post.id);
             }}
             className="flex items-center space-x-2 px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100 transition"
           >
@@ -1104,19 +1167,7 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
             {/* Comment Form */}
             <form onSubmit={(e) => {
               e.preventDefault();
-              if (newComment.trim()) {
-                commentOnPost(post.id, newComment);
-                setNewComment('');
-                // Add comment to local state immediately
-                const tempComment = {
-                  id: `temp-${Date.now()}`,
-                  content: newComment,
-                  authorId: user.uid,
-                  authorName: user.displayName || user.email,
-                  createdAt: new Date().toISOString()
-                };
-                setComments([...comments, tempComment]);
-              }
+              submitComment(post.id);
             }} className="mb-4">
               <div className="flex space-x-3">
                 <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
@@ -1126,10 +1177,14 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
                   <input
                     type="text"
                     value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
+                    onChange={(e) => setCommentDraftByPost((prev) => ({ ...prev, [post.id]: e.target.value }))}
+                    maxLength={MAX_COMMENT_CONTENT_LENGTH}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Write a comment..."
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    {newComment.length}/{MAX_COMMENT_CONTENT_LENGTH}
+                  </p>
                 </div>
                 <button
                   type="submit"
@@ -1159,11 +1214,74 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
                       </div>
                       <div className="flex-1">
                         <div className="bg-gray-100 rounded-lg px-3 py-2">
-                          <div className="flex items-center space-x-2 mb-1">
-                            <span className="font-medium text-gray-900 text-sm">{comment.authorName}</span>
-                            <span className="text-xs text-gray-500">{formatTime(comment.createdAt)}</span>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-medium text-gray-900 text-sm">{comment.authorName}</span>
+                              <span className="text-xs text-gray-500">{formatTime(comment.createdAt)}</span>
+                              {comment.editedAt && (
+                                <span className="text-xs text-gray-400">(edited)</span>
+                              )}
+                            </div>
+                            {comment.authorId === user.uid && (
+                              <div className="flex items-center space-x-3 text-xs">
+                                <button
+                                  type="button"
+                                  className="text-blue-600 hover:text-blue-700"
+                                  onClick={() => setEditingComment({ id: comment.id, postId: post.id, content: comment.content })}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="text-red-600 hover:text-red-700"
+                                  onClick={() => setShowDeleteCommentConfirm({ id: comment.id, postId: post.id })}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            )}
                           </div>
-                          <p className="text-gray-700 text-sm">{comment.content}</p>
+
+                          {editingComment?.id === comment.id ? (
+                            <form
+                              className="space-y-2"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                updateComment(comment.id, editingComment.content, post.id);
+                              }}
+                            >
+                              <input
+                                type="text"
+                                value={editingComment.content}
+                                onChange={(e) => setEditingComment((prev) => ({ ...prev, content: e.target.value }))}
+                                maxLength={MAX_COMMENT_CONTENT_LENGTH}
+                                className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                required
+                              />
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-gray-500">
+                                  {editingComment.content.length}/{MAX_COMMENT_CONTENT_LENGTH}
+                                </span>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingComment(null)}
+                                    className="px-2 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    className="px-2 py-1 text-xs text-white bg-blue-600 rounded hover:bg-blue-700"
+                                  >
+                                    Save
+                                  </button>
+                                </div>
+                              </div>
+                            </form>
+                          ) : (
+                            <p className="text-gray-700 text-sm">{comment.content}</p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1297,11 +1415,15 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
                   <textarea
                     value={editingPost.content}
                     onChange={(e) => setEditingPost({...editingPost, content: e.target.value})}
+                    maxLength={MAX_POST_CONTENT_LENGTH}
                     rows={4}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Update your post..."
                     required
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    {editingPost.content.length}/{MAX_POST_CONTENT_LENGTH}
+                  </p>
                 </div>
 
                 <div className="flex gap-3 pt-4">
@@ -1354,6 +1476,35 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
         </div>
       )}
 
+      {/* Delete Comment Confirmation Modal */}
+      {showDeleteCommentConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Delete Comment</h3>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to delete this comment? This action cannot be undone.
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteCommentConfirm(null)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteComment(showDeleteCommentConfirm.id, showDeleteCommentConfirm.postId)}
+                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Post Modal */}
       {showCreatePost && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1384,6 +1535,7 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
                   <textarea
                     value={newPostData.content}
                     onChange={(e) => setNewPostData({...newPostData, content: e.target.value})}
+                    maxLength={MAX_POST_CONTENT_LENGTH}
                     rows={4}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder={
@@ -1395,6 +1547,9 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
                     }
                     required
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    {newPostData.content.length}/{MAX_POST_CONTENT_LENGTH}
+                  </p>
                 </div>
 
                 <div>
@@ -1698,3 +1853,5 @@ const CommunitySocialFeed = ({ communityId, onNavigateToMessages }) => {
 };
 
 export default CommunitySocialFeed;
+
+

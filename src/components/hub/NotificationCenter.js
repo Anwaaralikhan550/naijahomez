@@ -272,7 +272,7 @@ const NotificationCenter = ({ communityId }) => {
                 onClick={() => {
                   setIsOpen(false);
                   // Navigate to notifications page
-                  window.location.href = '/the-hub/notifications';
+                  window.location.href = '/dashboard/community/notifications';
                 }}
                 className="text-sm text-blue-600 hover:text-blue-800"
               >

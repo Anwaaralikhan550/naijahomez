@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Users,
   Search,
@@ -30,6 +30,22 @@ const MemberDirectory = ({ communityId }) => {
   const [viewMode, setViewMode] = useState('grid'); // grid or list
   const [showContactModal, setShowContactModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
+
+  const safeText = (value, fallback = '') => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed || fallback;
+    }
+    return fallback;
+  };
+
+  const memberDisplayName = (member) => safeText(member?.userName, safeText(member?.userEmail, 'Member'));
+  const memberEmail = (member) => safeText(member?.userEmail, '');
+  const safeErrorMessage = (error, fallback) => {
+    if (typeof error?.message === 'string' && error.message.trim()) return error.message;
+    if (typeof error === 'string' && error.trim()) return error;
+    return fallback;
+  };
   
   // Use the async state hook for better error handling
   const { loading, error, execute: executeAsync } = useAsyncState();
@@ -80,13 +96,7 @@ const MemberDirectory = ({ communityId }) => {
   // Get paginated members
   const paginatedMembers = filteredMembers.slice(pagination.startIndex, pagination.endIndex);
 
-  useEffect(() => {
-    if (communityId) {
-      loadMembers();
-    }
-  }, [communityId]);
-
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     await executeAsync(async () => {
       const response = await authenticatedFetch(`/api/hub/members?communityId=${communityId}`);
 
@@ -98,27 +108,37 @@ const MemberDirectory = ({ communityId }) => {
       setMembers(result.members || []);
       return result.members;
     });
-  };
+  }, [communityId, executeAsync]);
+
+  useEffect(() => {
+    if (communityId) {
+      loadMembers();
+    }
+  }, [communityId, loadMembers]);
 
 
   const sendMessage = async (recipientId, recipientName) => {
     try {
+      const senderName = user?.displayName || user?.email || 'You';
+      const safeRecipientName =
+        (typeof recipientName === 'string' && recipientName.trim()) ? recipientName.trim() : 'Member';
+
       const response = await authenticatedFetch('/api/hub/messages/conversations', {
         method: 'POST',
         body: JSON.stringify({
           action: 'create_conversation',
-          participantId: recipientId,
-          participantName: recipientName,
-          communityId: communityId
+          participantIds: [user.uid, recipientId],
+          participantNames: [senderName, safeRecipientName],
+          communityId
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to create conversation');
-      }
+      const result = await response.json().catch(() => ({}));
 
-      const result = await response.json();
-      toast.success(`Starting conversation with ${recipientName}`);
+      if (!response.ok) {
+        throw new Error(typeof result?.error === 'string' ? result.error : 'Failed to create conversation');
+      }
+      toast.success(`Starting conversation with ${safeRecipientName}`);
 
       // Close the modal and potentially navigate to messages
       setShowContactModal(false);
@@ -127,7 +147,7 @@ const MemberDirectory = ({ communityId }) => {
       // For now, just show success
     } catch (error) {
       console.error('Error creating conversation:', error);
-      toast.error('Failed to start conversation. Please try again.');
+      toast.error(safeErrorMessage(error, 'Failed to start conversation. Please try again.'));
     }
   };
 
@@ -168,11 +188,11 @@ const MemberDirectory = ({ communityId }) => {
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center">
           <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
-            {member.userName?.charAt(0)?.toUpperCase() || '?'}
+            {memberDisplayName(member).charAt(0)?.toUpperCase() || '?'}
           </div>
           <div className="ml-3">
-            <h3 className="font-medium text-gray-900">{member.userName}</h3>
-            <p className="text-sm text-gray-600">{member.userEmail}</p>
+            <h3 className="font-medium text-gray-900">{memberDisplayName(member)}</h3>
+            <p className="text-sm text-gray-600">{memberEmail(member)}</p>
           </div>
         </div>
         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(member.role)}`}>
@@ -214,7 +234,7 @@ const MemberDirectory = ({ communityId }) => {
           Contact
         </button>
         <button
-          onClick={() => sendMessage(member.userId, member.userName)}
+          onClick={() => sendMessage(member.userId, memberDisplayName(member))}
           className="flex-1 border border-gray-300 text-gray-700 px-3 py-2 rounded-md hover:bg-gray-50 transition text-sm flex items-center justify-center"
         >
           <MessageCircle className="w-4 h-4 mr-1" />
@@ -229,13 +249,13 @@ const MemberDirectory = ({ communityId }) => {
       <div className="flex items-center justify-between">
         <div className="flex items-center flex-1">
           <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold mr-3">
-            {member.userName?.charAt(0)?.toUpperCase() || '?'}
+            {memberDisplayName(member).charAt(0)?.toUpperCase() || '?'}
           </div>
           
           <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-2">
             <div>
-              <h3 className="font-medium text-gray-900">{member.userName}</h3>
-              <p className="text-sm text-gray-600">{member.userEmail}</p>
+              <h3 className="font-medium text-gray-900">{memberDisplayName(member)}</h3>
+              <p className="text-sm text-gray-600">{memberEmail(member)}</p>
             </div>
             
             <div className="text-sm text-gray-600">
@@ -274,7 +294,7 @@ const MemberDirectory = ({ communityId }) => {
             Contact
           </button>
           <button
-            onClick={() => sendMessage(member.userId, member.userName)}
+            onClick={() => sendMessage(member.userId, memberDisplayName(member))}
             className="border border-gray-300 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-50 transition"
           >
             Message
@@ -292,8 +312,12 @@ const MemberDirectory = ({ communityId }) => {
         onRetry={loadMembers}
         data={members}
         loadingMessage="Loading community members..."
-        emptyTitle="No members found"
-        emptyMessage="This community doesn't have any members yet."
+        renderEmpty={() => (
+          <div className="text-center py-12">
+            <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500">No community members yet. Invite someone to start the conversation!</p>
+          </div>
+        )}
       >
         <div className="space-y-6">
       {/* Header */}
@@ -408,18 +432,18 @@ const MemberDirectory = ({ communityId }) => {
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
             <div className="p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Contact {selectedMember.userName}
+                Contact {memberDisplayName(selectedMember)}
               </h3>
               
               <div className="space-y-4">
                 <div className="flex items-center justify-center">
                   <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white text-xl font-semibold">
-                    {selectedMember.userName?.charAt(0)?.toUpperCase() || '?'}
+                    {memberDisplayName(selectedMember).charAt(0)?.toUpperCase() || '?'}
                   </div>
                 </div>
                 
                 <div className="text-center">
-                  <h4 className="font-medium text-gray-900">{selectedMember.userName}</h4>
+                  <h4 className="font-medium text-gray-900">{memberDisplayName(selectedMember)}</h4>
                   <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mt-1 ${getRoleColor(selectedMember.role)}`}>
                     {getRoleIcon(selectedMember.role)}
                     <span className="ml-1 capitalize">{selectedMember.role}</span>
@@ -427,14 +451,14 @@ const MemberDirectory = ({ communityId }) => {
                 </div>
 
                 <div className="space-y-3 border-t pt-4">
-                  {selectedMember.userEmail && (
+                  {memberEmail(selectedMember) && (
                     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center">
                         <Mail className="w-4 h-4 text-gray-600 mr-2" />
-                        <span className="text-sm text-gray-900">{selectedMember.userEmail}</span>
+                        <span className="text-sm text-gray-900">{memberEmail(selectedMember)}</span>
                       </div>
                       <button
-                        onClick={() => window.location.href = `mailto:${selectedMember.userEmail}`}
+                        onClick={() => window.location.href = `mailto:${memberEmail(selectedMember)}`}
                         className="text-blue-600 hover:text-blue-700 text-sm"
                       >
                         Email
@@ -470,7 +494,7 @@ const MemberDirectory = ({ communityId }) => {
 
                 <div className="flex gap-3 pt-4">
                   <button
-                    onClick={() => sendMessage(selectedMember.userId, selectedMember.userName)}
+                    onClick={() => sendMessage(selectedMember.userId, memberDisplayName(selectedMember))}
                     className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center justify-center"
                   >
                     <MessageCircle className="w-4 h-4 mr-2" />

@@ -17,8 +17,13 @@ import { authenticatedFetch } from '@/services/api';
 import toast from 'react-hot-toast';
 
 const CommunityCreator = ({ onClose, onSuccess }) => {
+  const COMMUNITY_NAME_MAX = 100;
+  const COMMUNITY_DESCRIPTION_MAX = 500;
+  const COMMUNITY_LOCATION_MAX = 180;
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [submitFeedback, setSubmitFeedback] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -40,8 +45,22 @@ const CommunityCreator = ({ onClose, onSuccess }) => {
   
   const [newAmenity, setNewAmenity] = useState('');
 
+  const REQUIRED_FIELD_ERRORS = {
+    name: 'Community name is required',
+    description: 'Description is required',
+    address: 'Address is required'
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    if (submitFeedback) {
+      setSubmitFeedback(null);
+    }
+
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: '' }));
+    }
+
     if (name.startsWith('emergencyContacts.')) {
       const field = name.split('.')[1];
       setFormData({
@@ -57,6 +76,30 @@ const CommunityCreator = ({ onClose, onSuccess }) => {
         [name]: value
       });
     }
+  };
+
+  const validateForm = () => {
+    const errors = {};
+
+    Object.entries(REQUIRED_FIELD_ERRORS).forEach(([field, message]) => {
+      if (!formData[field]?.trim()) {
+        errors[field] = message;
+      }
+    });
+
+    const composedLocation = [
+      formData.address,
+      formData.city,
+      formData.state,
+      formData.country
+    ].filter(Boolean).join(', ');
+
+    if (composedLocation.length > COMMUNITY_LOCATION_MAX) {
+      errors.address = `Address/location must be ${COMMUNITY_LOCATION_MAX} characters or less`;
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const addAmenity = () => {
@@ -78,16 +121,20 @@ const CommunityCreator = ({ onClose, onSuccess }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.name.trim() || !formData.address.trim()) {
-      toast.error('Community name and address are required');
+    setSubmitFeedback(null);
+
+    if (!validateForm()) {
+      setSubmitFeedback({
+        type: 'error',
+        message: 'Please fill all required fields marked with *.'
+      });
+      toast.error('Please fix the highlighted fields');
       return;
     }
-    
 
     try {
       setLoading(true);
-      
+
       // Combine address fields into location string for API compatibility
       const location = [
         formData.address,
@@ -95,82 +142,101 @@ const CommunityCreator = ({ onClose, onSuccess }) => {
         formData.state,
         formData.country
       ].filter(Boolean).join(', ');
-      
+
       const response = await authenticatedFetch('/api/hub/communities', {
         method: 'POST',
         body: JSON.stringify({
           action: 'create_community',
           name: formData.name,
           description: formData.description,
-          location: location, // Combined location string
-          isPublic: true, // Default to public for now
-          ...formData, // Include other form data
+          location,
+          isPublic: true,
+          ...formData,
           createdBy: user.uid,
           createdByName: user.displayName || user.email,
-          memberCount: 1 // Creator is the first member
+          memberCount: 1
         })
       });
 
       const result = await response.json();
 
-      if (response.ok) {
-        // Also create the creator as the first admin member
-        const memberResponse = await authenticatedFetch('/api/hub/communities', {
-          method: 'POST',
-          body: JSON.stringify({
-            action: 'join_community',
-            userId: user.uid,
-            communityId: result.communityId,
-            role: 'admin',
-            userName: user.displayName || user.email,
-            userEmail: user.email,
-            isActive: true,
-            joinedAt: new Date(),
-            isFounder: true
-          })
-        });
-
-        if (memberResponse.ok) {
-          toast.success('🎉 Community created successfully!', {
-            duration: 5000,
-            position: 'top-center',
-            style: {
-              background: '#10B981',
-              color: 'white',
-              fontWeight: 'bold',
-              padding: '16px',
-              borderRadius: '8px'
-            }
-          });
-
-          onSuccess && onSuccess({
-            communityId: result.communityId,
-            role: 'admin',
-            membership: {
-              communityId: result.communityId,
-              role: 'admin',
-              isFounder: true
-            }
-          });
-          onClose();
-        } else {
-          throw new Error('Community created but failed to add you as admin');
-        }
-      } else {
-        // Show detailed error message with missing fields if available
+      if (!response.ok) {
         let errorMessage = result.error || 'Failed to create community';
-        if (result.missing) {
+
+        if (result.missing && typeof result.missing === 'object') {
+          const backendFieldErrors = {};
+          if (result.missing.name) backendFieldErrors.name = REQUIRED_FIELD_ERRORS.name;
+          if (result.missing.description) backendFieldErrors.description = REQUIRED_FIELD_ERRORS.description;
+          if (result.missing.location) backendFieldErrors.address = 'Address is required to build location';
+
+          if (Object.keys(backendFieldErrors).length > 0) {
+            setFieldErrors(prev => ({ ...prev, ...backendFieldErrors }));
+          }
+
           const missingFields = Object.entries(result.missing)
-            .filter(([field, isMissing]) => isMissing)
+            .filter(([_, isMissing]) => isMissing)
             .map(([field]) => field)
             .join(', ');
           errorMessage += ` (Missing: ${missingFields})`;
         }
-        console.error('Community creation failed:', result);
+
+        if (result.code === 'VALIDATION_LENGTH_EXCEEDED') {
+          const backendFieldErrors = {};
+          if (result.field === 'name') {
+            backendFieldErrors.name = `Community name must be ${COMMUNITY_NAME_MAX} characters or less`;
+          }
+          if (result.field === 'description') {
+            backendFieldErrors.description = `Description must be ${COMMUNITY_DESCRIPTION_MAX} characters or less`;
+          }
+          if (result.field === 'location') {
+            backendFieldErrors.address = `Address/location must be ${COMMUNITY_LOCATION_MAX} characters or less`;
+          }
+          if (Object.keys(backendFieldErrors).length > 0) {
+            setFieldErrors(prev => ({ ...prev, ...backendFieldErrors }));
+          }
+        }
+
         throw new Error(errorMessage);
       }
+
+      setSubmitFeedback({
+        type: 'success',
+        message: 'Community created successfully. Redirecting...'
+      });
+
+      toast.success('Community created successfully!', {
+        duration: 5000,
+        position: 'top-center',
+        style: {
+          background: '#10B981',
+          color: 'white',
+          fontWeight: 'bold',
+          padding: '16px',
+          borderRadius: '8px'
+        }
+      });
+
+      onSuccess && onSuccess({
+        communityId: result.communityId,
+        role: 'admin',
+        membership: {
+          communityId: result.communityId,
+          role: 'admin',
+          memberId: result.memberId || null,
+          isFounder: true
+        }
+      });
+
+      setTimeout(() => {
+        onClose();
+      }, 900);
     } catch (error) {
-      toast.error(`❌ ${error.message}`, {
+      setSubmitFeedback({
+        type: 'error',
+        message: error.message || 'Failed to create community. Please try again.'
+      });
+
+      toast.error(`Community creation failed: ${error.message}`, {
         duration: 4000,
         position: 'top-center',
         style: {
@@ -185,7 +251,6 @@ const CommunityCreator = ({ onClose, onSuccess }) => {
       setLoading(false);
     }
   };
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -203,37 +268,84 @@ const CommunityCreator = ({ onClose, onSuccess }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          <div className="text-sm text-gray-600">
+            Fields marked <span className="text-red-500 font-semibold">*</span> are required.
+          </div>
+
+          {submitFeedback && (
+            <div
+              className={`rounded-md px-4 py-3 text-sm font-medium ${
+                submitFeedback.type === 'success'
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-red-50 text-red-700 border border-red-200'
+              }`}
+            >
+              {submitFeedback.message}
+            </div>
+          )}
+
           {/* Basic Information */}
           <div>
             <h4 className="text-lg font-medium text-gray-900 mb-4">Basic Information</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Community Name *
+                  Community Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   name="name"
                   value={formData.name}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  maxLength={COMMUNITY_NAME_MAX}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
+                    fieldErrors.name
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                   placeholder="e.g., Sunrise Estate, Marina Heights"
                   required
+                  aria-invalid={!!fieldErrors.name}
+                  aria-describedby={fieldErrors.name ? 'community-name-error' : undefined}
                 />
+                {fieldErrors.name && (
+                  <p id="community-name-error" className="mt-1 text-sm text-red-600">
+                    {fieldErrors.name}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  {formData.name.length}/{COMMUNITY_NAME_MAX}
+                </p>
               </div>
               
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
+                  Description <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   name="description"
                   value={formData.description}
                   onChange={handleInputChange}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  maxLength={COMMUNITY_DESCRIPTION_MAX}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
+                    fieldErrors.description
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                   placeholder="Brief description of your community..."
+                  required
+                  aria-invalid={!!fieldErrors.description}
+                  aria-describedby={fieldErrors.description ? 'community-description-error' : undefined}
                 />
+                {fieldErrors.description && (
+                  <p id="community-description-error" className="mt-1 text-sm text-red-600">
+                    {fieldErrors.description}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  {formData.description.length}/{COMMUNITY_DESCRIPTION_MAX}
+                </p>
               </div>
             </div>
           </div>
@@ -244,17 +356,32 @@ const CommunityCreator = ({ onClose, onSuccess }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Address *
+                  Address <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   name="address"
                   value={formData.address}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  maxLength={COMMUNITY_LOCATION_MAX}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
+                    fieldErrors.address
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                   placeholder="Street address"
                   required
+                  aria-invalid={!!fieldErrors.address}
+                  aria-describedby={fieldErrors.address ? 'community-address-error' : undefined}
                 />
+                {fieldErrors.address && (
+                  <p id="community-address-error" className="mt-1 text-sm text-red-600">
+                    {fieldErrors.address}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  {formData.address.length}/{COMMUNITY_LOCATION_MAX}
+                </p>
               </div>
               
               <div>
@@ -469,3 +596,4 @@ const CommunityCreator = ({ onClose, onSuccess }) => {
 };
 
 export default CommunityCreator;
+

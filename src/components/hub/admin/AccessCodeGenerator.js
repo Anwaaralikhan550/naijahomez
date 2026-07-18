@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Key, 
   Plus, 
@@ -38,14 +38,7 @@ const AccessCodeGenerator = ({ communityId }) => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCode, setShowCode] = useState({});
 
-  useEffect(() => {
-    if (communityId && user?.uid) {
-      loadAccessCodes();
-      loadAccessCodeRequests();
-    }
-  }, [communityId, user?.uid]);
-
-  const loadAccessCodes = async () => {
+  const loadAccessCodes = useCallback(async () => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`/api/hub/access-codes?communityId=${communityId}&admin=true`);
@@ -59,9 +52,9 @@ const AccessCodeGenerator = ({ communityId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [communityId]);
 
-  const loadAccessCodeRequests = async () => {
+  const loadAccessCodeRequests = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`/api/hub/access-code-requests?communityId=${communityId}&userId=${user.uid}`);
       const result = await response.json();
@@ -72,7 +65,14 @@ const AccessCodeGenerator = ({ communityId }) => {
     } catch (error) {
       console.error('Error loading requests:', error);
     }
-  };
+  }, [communityId, user?.uid]);
+
+  useEffect(() => {
+    if (communityId && user?.uid) {
+      loadAccessCodes();
+      loadAccessCodeRequests();
+    }
+  }, [communityId, user?.uid, loadAccessCodes, loadAccessCodeRequests]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
