@@ -3,6 +3,7 @@ import { getAdminAuth, getAdminFirestore } from '@/lib/firebase-admin';
 import logger from '@/lib/logger';
 import { sendVerificationEmailWithFallback } from '@/lib/mail';
 import { buildVerificationEmailTemplate } from '@/lib/templates/verificationEmail';
+import authRepository from '@/lib/db/auth-repository.cjs';
 
 const TOKEN_TTL_HOURS = 24;
 const TOKEN_COLLECTION = 'emailVerificationTokens';
@@ -162,6 +163,10 @@ export async function verifyEmailToken({ uid, token }) {
       },
       { merge: true }
     );
+
+    // Best-effort forward-compat sync: no-op until this user has an
+    // app_user_profiles row (created during the Phase 6 auth migration).
+    await authRepository.setEmailVerified(uid, true).catch(() => {});
 
     await tokenDoc.ref.update({
       used: true,

@@ -4,6 +4,7 @@
 import { NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from './firebase-admin';
 import logger from './logger';
+import { verifyAccessToken } from './auth/tokens';
 
 /**
  * Verifies the Firebase ID token from the Authorization header.
@@ -109,6 +110,49 @@ export async function verifyAuth(request) {
         { error: 'Authentication verification failed' },
         { status: 401 }
       )
+    };
+  }
+}
+
+/**
+ * Verifies a self-issued Postgres-native JWT (see src/lib/auth/tokens.js)
+ * from the Authorization header. Returns the same {success, userId, user}
+ * shape as verifyAuth() so every downstream call site keeps working
+ * unchanged once this is wired in.
+ *
+ * NOT called by verifyAuth() yet -- this is Phase 5 "build only" work.
+ * Phase 6 wires this in as the first-tried path in verifyAuth(), falling
+ * back to the existing Firebase verification during the dual-auth window.
+ */
+export async function verifyAuthPostgres(request) {
+  try {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return {
+        success: false,
+        error: NextResponse.json({ error: 'Authorization header with Bearer token required' }, { status: 401 })
+      };
+    }
+
+    const token = authHeader.substring(7);
+    const payload = await verifyAccessToken(token);
+
+    return {
+      success: true,
+      userId: payload.uid,
+      user: {
+        uid: payload.uid,
+        email: payload.email,
+        emailVerified: payload.emailVerified,
+        name: null,
+        isAdmin: payload.isAdmin,
+        role: payload.role
+      }
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: NextResponse.json({ error: 'Invalid or expired session. Please log in again.' }, { status: 401 })
     };
   }
 }
