@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { FieldValue } = require('firebase-admin/firestore');
 const { getAutomationFirestore } = require('../automation/admin-firestore');
+const analyticsRepository = require('../db/analytics-repository.cjs');
 
 const AD_SLOTS = {
   home_between_listings: { label: 'Home sponsored listing', minBudget: 5000 },
@@ -85,6 +86,16 @@ function canonicalCategoryKey(value) {
 
 function dayKey(date = nowDate()) {
   return date.toISOString().slice(0, 10);
+}
+
+function metricRowToLegacyShape(row) {
+  return {
+    id: `${row.day}__${row.dimensionKey}`,
+    dateKey: row.day,
+    ...row.data,
+    count: row.count,
+    updatedAt: row.updatedAt
+  };
 }
 
 function serializeDoc(doc) {
@@ -338,8 +349,7 @@ async function recordJourneyEvent({ step, source = '', location = '', listingTyp
   const allowed = ['landing', 'search', 'listing_view', 'whatsapp_click', 'call_click', 'campaign_click', 'lead_submit', 'signup_start', 'signup_complete'];
   if (!allowed.includes(step)) return { accepted: false };
   const date = nowDate();
-  const id = [
-    dayKey(date),
+  const dimensionKey = [
     normalizeKey(step),
     normalizeKey(source),
     normalizeKey(location),
@@ -347,18 +357,21 @@ async function recordJourneyEvent({ step, source = '', location = '', listingTyp
     normalizeKey(device),
     normalizeKey(normalizePage(page))
   ].join('__');
-  await db().collection('journeyMetricDaily').doc(id).set({
-    dateKey: dayKey(date),
-    step,
-    source: normalize(source || 'direct'),
-    location: normalize(location || 'all'),
-    listingType: normalize(listingType || 'all'),
-    page: normalizePage(page || '/'),
-    device: normalize(device || 'unknown'),
-    element: normalize(element || '').slice(0, 100),
-    count: FieldValue.increment(1),
-    updatedAt: date
-  }, { merge: true });
+  await analyticsRepository.upsertDailyMetric({
+    day: date,
+    metricName: 'journey_step',
+    dimensionKey,
+    incrementBy: 1,
+    data: {
+      step,
+      source: normalize(source || 'direct'),
+      location: normalize(location || 'all'),
+      listingType: normalize(listingType || 'all'),
+      page: normalizePage(page || '/'),
+      device: normalize(device || 'unknown'),
+      element: normalize(element || '').slice(0, 100)
+    }
+  });
   return { accepted: true };
 }
 
@@ -371,19 +384,22 @@ async function recordHeatmapEvent({ page = '', element = '', xPercent = 0, yPerc
   const cleanPage = normalizePage(page || '/');
   const cleanElement = normalize(element || 'page').slice(0, 80) || 'page';
   const cleanDevice = normalize(device || 'unknown').slice(0, 32);
-  const id = [dayKey(date), normalizeKey(cleanPage), normalizeKey(cleanDevice), normalizeKey(cleanElement), `x${xBucket}`, `y${yBucket}`].join('__');
+  const dimensionKey = [normalizeKey(cleanPage), normalizeKey(cleanDevice), normalizeKey(cleanElement), `x${xBucket}`, `y${yBucket}`].join('__');
 
-  await db().collection('heatmapMetricDaily').doc(id).set({
-    dateKey: dayKey(date),
-    page: cleanPage,
-    element: cleanElement,
-    device: cleanDevice,
-    viewport: normalize(viewport).slice(0, 32),
-    xBucket,
-    yBucket,
-    count: FieldValue.increment(1),
-    updatedAt: date
-  }, { merge: true });
+  await analyticsRepository.upsertDailyMetric({
+    day: date,
+    metricName: 'heatmap_click',
+    dimensionKey,
+    incrementBy: 1,
+    data: {
+      page: cleanPage,
+      element: cleanElement,
+      device: cleanDevice,
+      viewport: normalize(viewport).slice(0, 32),
+      xBucket,
+      yBucket
+    }
+  });
 
   return { accepted: true };
 }
@@ -395,19 +411,19 @@ async function listUserCampaigns(userId) {
 
 async function listAdminAdvertising() {
   const database = db();
-  const [campaignsSnap, metricsSnap, journeySnap, heatmapSnap, marketSnap, agentSnap] = await Promise.all([
+  const [campaignsSnap, metricsSnap, journeyRows, heatmapRows, marketSnap, agentSnap] = await Promise.all([
     database.collection('adCampaigns').limit(100).get(),
     database.collection('adMetricDaily').limit(200).get(),
-    database.collection('journeyMetricDaily').limit(300).get(),
-    database.collection('heatmapMetricDaily').limit(300).get(),
+    analyticsRepository.listDailyMetrics({ metricName: 'journey_step', limit: 300 }),
+    analyticsRepository.listDailyMetrics({ metricName: 'heatmap_click', limit: 300 }),
     database.collection('marketEngagementReports').orderBy('generatedAt', 'desc').limit(5).get().catch(() => ({ docs: [] })),
     database.collection('agentActivityReports').orderBy('generatedAt', 'desc').limit(5).get().catch(() => ({ docs: [] }))
   ]);
   return {
     campaigns: campaignsSnap.docs.map(serializeDoc).sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)),
     metrics: metricsSnap.docs.map(serializeDoc),
-    journeyMetrics: journeySnap.docs.map(serializeDoc),
-    heatmapMetrics: heatmapSnap.docs.map(serializeDoc),
+    journeyMetrics: journeyRows.map(metricRowToLegacyShape),
+    heatmapMetrics: heatmapRows.map(metricRowToLegacyShape),
     marketReports: marketSnap.docs.map(serializeDoc),
     agentReports: agentSnap.docs.map(serializeDoc)
   };
@@ -566,9 +582,9 @@ async function verifyCampaignPayment({ txRef, transactionId }) {
 
 async function generateWeeklyReports() {
   const database = db();
-  const [journeySnap, heatmapSnap, adSnap, campaignsSnap, ...listingSnaps] = await Promise.all([
-    database.collection('journeyMetricDaily').limit(500).get(),
-    database.collection('heatmapMetricDaily').limit(500).get(),
+  const [journeyRows, heatmapRows, adSnap, campaignsSnap, ...listingSnaps] = await Promise.all([
+    analyticsRepository.listDailyMetrics({ metricName: 'journey_step', limit: 500 }),
+    analyticsRepository.listDailyMetrics({ metricName: 'heatmap_click', limit: 500 }),
     database.collection('adMetricDaily').limit(500).get(),
     database.collection('adCampaigns').limit(500).get(),
     ...LISTING_REPORT_COLLECTIONS.map((collection) => database.collection(collection).limit(500).get().catch(() => ({ docs: [] })))
@@ -584,8 +600,8 @@ async function generateWeeklyReports() {
     campaignByAgent.set(key, prev);
   });
 
-  const journey = journeySnap.docs.map(serializeDoc);
-  const heatmap = heatmapSnap.docs.map(serializeDoc);
+  const journey = journeyRows.map(metricRowToLegacyShape);
+  const heatmap = heatmapRows.map(metricRowToLegacyShape);
   const hotLocations = {};
   const funnelTotals = {};
   const listingTypeTotals = {};
