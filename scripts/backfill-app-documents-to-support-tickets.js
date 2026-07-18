@@ -8,6 +8,10 @@
  * Usage: node scripts/backfill-app-documents-to-support-tickets.js [--dry-run]
  */
 
+const path = require('path');
+const { loadEnvConfig } = require('@next/env');
+loadEnvConfig(path.resolve(__dirname, '..'));
+
 const { query } = require('../src/lib/db/postgres-client.cjs');
 
 const DRY_RUN = process.argv.includes('--dry-run');

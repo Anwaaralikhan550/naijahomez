@@ -8,6 +8,10 @@
  * Usage: node scripts/backfill-app-documents-to-content-tables.js [--dry-run]
  */
 
+const path = require('path');
+const { loadEnvConfig } = require('@next/env');
+loadEnvConfig(path.resolve(__dirname, '..'));
+
 const { query } = require('../src/lib/db/postgres-client.cjs');
 const blogPostRepository = require('../src/lib/db/blog-post-repository.cjs');
 
