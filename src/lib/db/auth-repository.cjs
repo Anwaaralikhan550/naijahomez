@@ -70,6 +70,10 @@ async function createUserProfile({
        display_name = COALESCE(EXCLUDED.display_name, app_user_profiles.display_name),
        photo_url = COALESCE(EXCLUDED.photo_url, app_user_profiles.photo_url),
        sign_in_provider = EXCLUDED.sign_in_provider,
+       password_hash = COALESCE(EXCLUDED.password_hash, app_user_profiles.password_hash),
+       password_algo = COALESCE(EXCLUDED.password_algo, app_user_profiles.password_algo),
+       password_updated_at = CASE WHEN EXCLUDED.password_hash IS NOT NULL THEN NOW() ELSE app_user_profiles.password_updated_at END,
+       auth_migrated_at = COALESCE(app_user_profiles.auth_migrated_at, EXCLUDED.auth_migrated_at),
        updated_at = NOW()
      RETURNING *`,
     [userId, email, displayName, photoUrl, signInProvider, emailVerified, passwordHash, passwordAlgo, authMigrated]
