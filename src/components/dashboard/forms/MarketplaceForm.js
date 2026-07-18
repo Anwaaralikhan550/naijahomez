@@ -1,13 +1,12 @@
 'use client';
 // components/dashboard/forms/MarketplaceForm.js
 import React, { useState, useEffect } from 'react';
-import { uploadToS3 } from '@/utils/s3Upload';
+import { AD_IMAGE_ACCEPT, uploadToS3, validateAdImageFiles } from '@/utils/s3Upload';
 import { Image, X, Loader2, MapPin, Tag } from 'lucide-react';
 import apiService from '@/services/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
-import { db } from '@/lib/firebase-client';
-import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { getDraft, updateDraft, deleteDraft } from '@/lib/client-drafts';
 
 export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null }) {
   const { user } = useAuth();
@@ -15,6 +14,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
   const [images, setImages] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [missingFields, setMissingFields] = useState([]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -63,9 +63,9 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
       const storedDraftId = localStorage.getItem('marketplaceDraftId');
       if (storedDraftId) {
         try {
-          const draftDoc = await getDoc(doc(db, 'drafts', storedDraftId));
-          if (draftDoc.exists()) {
-            const draftData = draftDoc.data();
+          const draftDoc = await getDraft(storedDraftId);
+          if (draftDoc.exists) {
+            const draftData = draftDoc.data;
             setDraftId(storedDraftId);
             setImages(draftData.imageUrls?.map(url => ({ url })) || []);
             if (draftData.formData) {
@@ -90,14 +90,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
       return;
     }
 
-    // Validate file types and sizes
-    const validFiles = files.filter(file => {
-      const isValidType = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
-      const isValidSize = file.size <= 5 * 1024 * 1024; // 5MB limit
-      if (!isValidType) toast.error(`${file.name} is not a supported image type`);
-      if (!isValidSize) toast.error(`${file.name} is too large (max 5MB)`);
-      return isValidType && isValidSize;
-    });
+    const validFiles = validateAdImageFiles(files, toast.error);
 
     if (validFiles.length === 0) return;
 
@@ -116,7 +109,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
       
       // Update draft with current form data
       if (draftId) {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           formData,
           updatedAt: new Date()
         });
@@ -153,7 +146,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
 
       // Update draft in Firebase
       if (draftId) {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           imageUrls: images.filter((_, i) => i !== index).map(img => img.url),
           updatedAt: new Date()
         });
@@ -176,12 +169,14 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
 
     // Validate required fields
     const requiredFields = ['title', 'description', 'price', 'location', 'category', 'condition'];
-    const missingFields = requiredFields.filter(field => !formData[field]);
+    const missing = requiredFields.filter((field) => !String(formData[field] ?? '').trim());
     
-    if (missingFields.length > 0) {
-      toast.error(`Please fill in all required fields: ${missingFields.join(', ')}`);
+    if (missing.length > 0) {
+      setMissingFields(missing);
+      toast.error('Please fill in all required fields');
       return;
     }
+    setMissingFields([]);
 
     setIsSubmitting(true);
     try {
@@ -202,7 +197,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
       
       // Clean up draft if not editing
       if (draftId && !editingItem) {
-        await deleteDoc(doc(db, 'drafts', draftId));
+        await deleteDraft(draftId);
         localStorage.removeItem('marketplaceDraftId');
       }
 
@@ -217,6 +212,9 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
 
   const handleInputChange = async (e) => {
     const { name, value } = e.target;
+    if (missingFields.includes(name) && String(value || '').trim()) {
+      setMissingFields((prev) => prev.filter((field) => field !== name));
+    }
     const updatedFormData = {
       ...formData,
       [name]: value
@@ -226,7 +224,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
     // Update draft with new form data if draft exists
     if (draftId) {
       try {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           formData: updatedFormData,
           updatedAt: new Date()
         });
@@ -249,7 +247,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
       if (window.confirm('Are you sure you want to discard this draft?')) {
         try {
           // Delete draft document
-          await deleteDoc(doc(db, 'drafts', draftId));
+          await deleteDraft(draftId);
           localStorage.removeItem('marketplaceDraftId');
           
           // Delete all uploaded images
@@ -281,6 +279,9 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
     if (!value) return '';
     return value.toString().replace(/,/g, '');
   };
+
+  const getFieldClass = (fieldName) =>
+    `w-full p-2 border rounded-lg ${missingFields.includes(fieldName) ? 'border-red-500 ring-1 ring-red-300 bg-red-50' : ''}`;
 
   // Category options
   const categoryOptions = [
@@ -326,7 +327,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
       {/* Image Upload Section */}
       <div className="bg-white rounded-xl shadow-md p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-4">Upload Images</h3>
@@ -364,7 +365,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
               )}
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept={AD_IMAGE_ACCEPT}
                 multiple
                 onChange={handleImageUpload}
                 className="hidden"
@@ -381,6 +382,11 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
       {/* Basic Item Details */}
       <div className="bg-white rounded-xl shadow-md p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-4">Item Details</h3>
+        {missingFields.length > 0 && (
+          <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            Missing required fields are highlighted in red.
+          </p>
+        )}
         <div className="grid md:grid-cols-2 gap-6">
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -390,7 +396,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
               type="text"
               name="title"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('title')}
               value={formData.title}
               onChange={handleInputChange}
               placeholder="e.g., Brand New iPhone 13 Pro Max 256GB"
@@ -404,7 +410,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
             <select
               name="category"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('category')}
               value={formData.category}
               onChange={handleInputChange}
             >
@@ -445,7 +451,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
               type="text"
               name="price"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('price')}
               value={formatPrice(formData.price)}
               onChange={(e) => {
                 const parsedValue = parsePrice(e.target.value);
@@ -472,7 +478,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
                 type="text"
                 name="location"
                 required
-                className="w-full p-2 pl-8 border rounded-lg"
+                className={`${getFieldClass('location')} pl-8`}
                 value={formData.location}
                 onChange={handleInputChange}
                 placeholder="e.g., Lekki, Lagos"
@@ -487,7 +493,7 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
             <select
               name="condition"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('condition')}
               value={formData.condition}
               onChange={handleInputChange}
             >
@@ -526,7 +532,8 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
               name="description"
               required
               rows={4}
-              className="w-full p-2 border rounded-lg"
+              maxLength={5000}
+              className={getFieldClass('description')}
               value={formData.description}
               onChange={handleInputChange}
               placeholder="Describe your item in detail, including features, specifications, and condition..."
@@ -589,11 +596,11 @@ export default function MarketplaceForm({ onSubmit, onCancel, editingItem = null
       </div>
 
       {/* Submit Buttons */}
-      <div className="flex justify-end gap-4">
+      <div className="flex items-center justify-between gap-4">
         <button
           type="button"
           onClick={handleCancel}
-          className="px-6 py-2 text-gray-600 hover:text-gray-800"
+          className="px-6 py-2 border border-red-400 text-red-700 rounded-lg hover:bg-red-700 hover:text-white hover:border-red-700 transition-colors"
         >
           Cancel
         </button>

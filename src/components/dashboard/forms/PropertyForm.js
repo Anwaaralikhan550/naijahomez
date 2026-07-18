@@ -1,12 +1,10 @@
 'use client';
-import React, { useState, useEffect } from 'react';
-import { uploadToS3 } from '@/utils/s3Upload';
-import { Image, X, Loader2, MapPin, Home, Bath, Car, Wifi, Wind, Shield, DollarSign } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { X, Loader2, MapPin, Home, Bath, Car, Wifi, Wind, Shield, Sparkles, Eye, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import apiService from '@/services/api';
 import toast from 'react-hot-toast';
-import { db } from '@/lib/firebase-client';
-import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { getDraft, updateDraft, deleteDraft } from '@/lib/client-drafts';
+import ListingImageUploader from './ListingImageUploader';
 
 export default function PropertyForm({ onSubmit, onCancel }) {
   const { user } = useAuth();
@@ -14,6 +12,16 @@ export default function PropertyForm({ onSubmit, onCancel }) {
   const [images, setImages] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [missingFields, setMissingFields] = useState([]);
+  const [priceSuggestion, setPriceSuggestion] = useState(null);
+  const [isSuggestingPrice, setIsSuggestingPrice] = useState(false);
+  const [placesReady, setPlacesReady] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const locationInputRef = useRef(null);
+  const streetInputRef = useRef(null);
+  const townInputRef = useRef(null);
+  const stateInputRef = useRef(null);
+  const formDataRef = useRef(null);
   
   // Main form data state
   const [formData, setFormData] = useState({
@@ -90,6 +98,10 @@ export default function PropertyForm({ onSubmit, onCancel }) {
     status: 'active'
   });
 
+  useEffect(() => {
+    formDataRef.current = formData;
+  }, [formData]);
+
   // Available amenities list
   const amenityOptions = [
     { value: 'estate_water', label: 'Estate Water' },
@@ -110,11 +122,17 @@ export default function PropertyForm({ onSubmit, onCancel }) {
       const storedDraftId = localStorage.getItem('propertyDraftId');
       if (storedDraftId) {
         try {
-          const draftDoc = await getDoc(doc(db, 'drafts', storedDraftId));
-          if (draftDoc.exists()) {
-            const draftData = draftDoc.data();
+          const draftDoc = await getDraft(storedDraftId);
+          if (draftDoc.exists) {
+            const draftData = draftDoc.data;
             setDraftId(storedDraftId);
-            setImages(draftData.imageUrls.map(url => ({ url })));
+            const draftImages = Array.isArray(draftData.images)
+              ? draftData.images
+              : (draftData.imageUrls || []).map((url, index) => ({
+                  url,
+                  metadata: draftData.imageMeta?.[index] || null
+                }));
+            setImages(draftImages);
             if (draftData.formData) {
               setFormData(draftData.formData);
             }
@@ -129,52 +147,31 @@ export default function PropertyForm({ onSubmit, onCancel }) {
     loadDraft();
   }, []);
 
-  const handleImageUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    
-    if (images.length + files.length > 10) {
-      toast.error('Maximum 10 images allowed');
-      return;
-    }
-
-    // Validate file types and sizes
-    const validFiles = files.filter(file => {
-      const isValidType = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
-      const isValidSize = file.size <= 5 * 1024 * 1024; // 5MB limit
-      if (!isValidType) toast.error(`${file.name} is not a supported image type`);
-      if (!isValidSize) toast.error(`${file.name} is too large (max 5MB)`);
-      return isValidType && isValidSize;
+  const persistDraftImages = useCallback(async (nextImages, nextDraftId = draftId) => {
+    if (!nextDraftId) return;
+    await updateDraft(nextDraftId, {
+      imageUrls: nextImages.map((img) => img.url),
+      imageMeta: nextImages.map((img) => img.metadata || null),
+      images: nextImages,
+      formData,
+      updatedAt: new Date()
     });
+  }, [draftId, formData]);
 
-    if (validFiles.length === 0) return;
+  const handleDraftIdChange = useCallback((nextDraftId) => {
+    if (!nextDraftId) return;
+    setDraftId(nextDraftId);
+    localStorage.setItem('propertyDraftId', nextDraftId);
+  }, []);
 
-    setIsUploading(true);
-    
+  const handleImagesChange = useCallback(async (nextImages, nextDraftId = draftId) => {
+    setImages(nextImages);
     try {
-      for (const file of validFiles) {
-        const { url, draftId: newDraftId } = await uploadToS3(file, draftId, user?.uid);
-        if (!draftId) {
-          setDraftId(newDraftId);
-          localStorage.setItem('propertyDraftId', newDraftId);
-        }
-        setImages(prev => [...prev, { url }]);
-      }
-      toast.success('Images uploaded successfully');
-      
-      // Update draft with current form data
-      if (draftId) {
-        await updateDoc(doc(db, 'drafts', draftId), {
-          formData,
-          updatedAt: new Date()
-        });
-      }
+      await persistDraftImages(nextImages, nextDraftId);
     } catch (error) {
-      console.error('Upload error:', error);
-      toast.error('Failed to upload images');
-    } finally {
-      setIsUploading(false);
+      console.error('Error updating draft images:', error);
     }
-  };
+  }, [draftId, persistDraftImages]);
 
   const removeImage = async (index) => {
     const imageToRemove = images[index];
@@ -195,13 +192,15 @@ export default function PropertyForm({ onSubmit, onCancel }) {
         throw new Error('Failed to delete image');
       }
 
-      // Update images state
-      setImages(prev => prev.filter((_, i) => i !== index));
+      const nextImages = images.filter((_, i) => i !== index);
+      setImages(nextImages);
 
       // Update draft in Firebase
       if (draftId) {
-        await updateDoc(doc(db, 'drafts', draftId), {
-          imageUrls: images.filter((_, i) => i !== index).map(img => img.url),
+        await updateDraft(draftId, {
+          imageUrls: nextImages.map(img => img.url),
+          imageMeta: nextImages.map(img => img.metadata || null),
+          images: nextImages,
           updatedAt: new Date()
         });
       }
@@ -213,43 +212,56 @@ export default function PropertyForm({ onSubmit, onCancel }) {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
+  const validateFormForPublish = () => {
     if (images.length === 0) {
       toast.error('Please upload at least one image');
-      return;
+      return false;
     }
 
-    // Validate required fields
     const requiredFields = ['title', 'description', 'location', 'propertyType', 'listingType'];
-    const missingFields = requiredFields.filter(field => !formData[field]);
+    const missing = requiredFields.filter((field) => !String(formData[field] ?? '').trim());
 
-    // Validate price based on listing type
     if (formData.listingType === 'sale') {
       if (!formData.salePrice) {
-        missingFields.push('salePrice');
+        missing.push('salePrice');
       }
     } else {
       // Rent listing
       if (formData.rentType === 'monthly' && !formData.rentAmount.monthly) {
-        missingFields.push('rentAmount');
+        missing.push('rentAmount.monthly');
       } else if (formData.rentType === 'annual' && !formData.rentAmount.annual) {
-        missingFields.push('rentAmount');
+        missing.push('rentAmount.annual');
       }
     }
 
-    if (missingFields.length > 0) {
-      toast.error(`Please fill in all required fields: ${missingFields.join(', ')}`);
-      return;
+    if (missing.length > 0) {
+      setMissingFields(missing);
+      toast.error('Please fill in all required fields');
+      return false;
     }
+
+    setMissingFields([]);
+    return true;
+  };
+
+  const handlePreviewClick = () => {
+    if (!validateFormForPublish()) return;
+    setIsPreviewOpen(true);
+  };
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault?.();
+    
+    if (!validateFormForPublish()) return;
+    setIsPreviewOpen(false);
 
     setIsSubmitting(true);
     try {
       // Prepare the price field (backwards compatibility)
       let submissionData = {
         ...formData,
-        type: 'property'
+        type: 'property',
+        imageMeta: images.map((img) => img.metadata || null)
       };
 
       // Set price based on listing type (sale vs rent)
@@ -277,7 +289,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
       
       // Clean up draft
       if (draftId) {
-        await deleteDoc(doc(db, 'drafts', draftId));
+        await deleteDraft(draftId);
         localStorage.removeItem('propertyDraftId');
       }
 
@@ -307,6 +319,9 @@ export default function PropertyForm({ onSubmit, onCancel }) {
 
   const handleInputChange = async (e) => {
     const { name, value, type, checked } = e.target;
+    if (missingFields.includes(name) && String(value || '').trim()) {
+      setMissingFields((prev) => prev.filter((field) => field !== name));
+    }
     
     let updatedData;
     
@@ -362,7 +377,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
     // Update draft with new form data
     if (draftId) {
       try {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           formData: updatedData,
           updatedAt: new Date()
         });
@@ -395,7 +410,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
     // Update draft
     if (draftId) {
       try {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           formData: updatedFormData,
           updatedAt: new Date()
         });
@@ -422,7 +437,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
     // Update draft
     if (draftId) {
       try {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           formData: updatedFormData,
           updatedAt: new Date()
         });
@@ -438,7 +453,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
       if (window.confirm('Are you sure you want to discard this draft?')) {
         try {
           // Delete draft document
-          await deleteDoc(doc(db, 'drafts', draftId));
+          await deleteDraft(draftId);
           localStorage.removeItem('propertyDraftId');
           
           // Delete all uploaded images
@@ -471,62 +486,251 @@ export default function PropertyForm({ onSubmit, onCancel }) {
     return value.toString().replace(/,/g, '');
   };
 
+  const getFieldClass = (fieldName) =>
+    `w-full p-2 border rounded-lg ${missingFields.includes(fieldName) ? 'border-red-500 ring-1 ring-red-300 bg-red-50' : ''}`;
+
+  const formatNaira = (value) => {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number) || number <= 0) return '';
+    return `₦${Math.round(number).toLocaleString('en-NG')}`;
+  };
+
+  const getPreviewPrice = () => {
+    if (formData.listingType === 'sale') {
+      return formData.salePrice ? formatNaira(formData.salePrice) : 'Price not set';
+    }
+    const rentValue = formData.rentType === 'annual'
+      ? formData.rentAmount.annual
+      : formData.rentAmount.monthly;
+    const suffix = formData.rentType === 'annual' ? '/year' : '/month';
+    return rentValue ? `${formatNaira(rentValue)}${suffix}` : 'Rent not set';
+  };
+
+  const getPropertyTypeLabel = () => {
+    const labels = {
+      house: 'House',
+      apartment: 'Apartment',
+      land: 'Land',
+      commercial: 'Commercial'
+    };
+    return labels[formData.propertyType] || 'Property';
+  };
+
+  const selectedAmenities = amenityOptions
+    .filter((amenity) => Array.isArray(formData.amenities) && formData.amenities.includes(amenity.value))
+    .map((amenity) => amenity.label);
+
+  const previewImage = images[0]?.url || '';
+
+  const applySuggestedPrice = () => {
+    if (!priceSuggestion?.median) return;
+    const nextValue = String(Math.round(priceSuggestion.median));
+    if (formData.listingType === 'sale') {
+      handleInputChange({ target: { name: 'salePrice', value: nextValue } });
+      return;
+    }
+    const targetName = formData.rentType === 'annual' ? 'rentAmount.annual' : 'rentAmount.monthly';
+    handleInputChange({ target: { name: targetName, value: nextValue } });
+  };
+
+  const applyAddressPatch = useCallback(async (patch) => {
+    if (!patch || Object.keys(patch).length === 0) return;
+    const currentFormData = formDataRef.current || formData;
+    const nextData = {
+      ...currentFormData,
+      ...patch,
+      address: {
+        ...(currentFormData.address || {}),
+        ...(patch.address || {})
+      }
+    };
+    formDataRef.current = nextData;
+    setFormData(nextData);
+    if (draftId) {
+      try {
+        await updateDraft(draftId, {
+          formData: nextData,
+          updatedAt: new Date()
+        });
+      } catch (error) {
+        console.error('Error updating draft:', error);
+      }
+    }
+  }, [draftId, formData]);
+
+  const parseGooglePlace = useCallback((place) => {
+    const components = place?.address_components || [];
+    const getPart = (types) => {
+      const match = components.find((component) => types.some((type) => component.types?.includes(type)));
+      return match?.long_name || '';
+    };
+
+    const streetNumber = getPart(['street_number']);
+    const route = getPart(['route']);
+    const town = getPart(['sublocality_level_1', 'locality', 'administrative_area_level_2']);
+    const state = getPart(['administrative_area_level_1']);
+    const formatted = place?.formatted_address || '';
+
+    const patch = {};
+    const address = {};
+    const location = town && state ? `${town}, ${state}` : formatted;
+    const street = [streetNumber, route].filter(Boolean).join(' ');
+
+    if (location) patch.location = location;
+    if (street) address.street = street;
+    if (town) address.town = town;
+    if (state) address.state = state;
+    if (Object.keys(address).length > 0) patch.address = address;
+
+    return patch;
+  }, []);
+
+  useEffect(() => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey || typeof window === 'undefined') return undefined;
+
+    let cancelled = false;
+    const scriptId = 'google-maps-places-script';
+
+    const initializeAutocomplete = () => {
+      if (cancelled || !window.google?.maps?.places) return;
+      setPlacesReady(true);
+      const refs = [locationInputRef, streetInputRef, townInputRef, stateInputRef];
+      refs.forEach((inputRef) => {
+        if (!inputRef.current || inputRef.current.dataset.placesReady === 'true') return;
+        inputRef.current.dataset.placesReady = 'true';
+        const autocomplete = new window.google.maps.places.Autocomplete(inputRef.current, {
+          componentRestrictions: { country: 'ng' },
+          fields: ['address_components', 'formatted_address', 'name']
+        });
+        autocomplete.addListener('place_changed', () => {
+          const place = autocomplete.getPlace();
+          applyAddressPatch(parseGooglePlace(place));
+        });
+      });
+    };
+
+    const existingScript = document.getElementById(scriptId);
+    if (existingScript) {
+      if (window.google?.maps?.places) initializeAutocomplete();
+      else existingScript.addEventListener('load', initializeAutocomplete, { once: true });
+      return () => {
+        cancelled = true;
+        existingScript.removeEventListener('load', initializeAutocomplete);
+      };
+    }
+
+    const script = document.createElement('script');
+    script.id = scriptId;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.addEventListener('load', initializeAutocomplete, { once: true });
+    document.head.appendChild(script);
+
+    return () => {
+      cancelled = true;
+      script.removeEventListener('load', initializeAutocomplete);
+    };
+  }, [applyAddressPatch, parseGooglePlace]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const shouldFetch = formData.location && formData.propertyType && formData.listingType;
+    if (!shouldFetch) {
+      setPriceSuggestion(null);
+      return undefined;
+    }
+
+    const timeout = setTimeout(async () => {
+      setIsSuggestingPrice(true);
+      try {
+        const params = new URLSearchParams({
+          location: formData.location,
+          propertyType: formData.propertyType,
+          bedrooms: formData.bedrooms || '',
+          bathrooms: formData.bathrooms || '',
+          listingType: formData.listingType,
+          rentType: formData.rentType || ''
+        });
+        const response = await fetch(`/api/listings/price-suggestions?${params.toString()}`, {
+          signal: controller.signal
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || 'No suggestion available');
+        setPriceSuggestion(result.suggestion || null);
+      } catch (error) {
+        if (error.name !== 'AbortError') setPriceSuggestion(null);
+      } finally {
+        setIsSuggestingPrice(false);
+      }
+    }, 500);
+
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [formData.bathrooms, formData.bedrooms, formData.listingType, formData.location, formData.propertyType, formData.rentType]);
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Image Upload Section */}
-      <div className="bg-white rounded-xl shadow-md p-6">
-        <h3 className="text-lg font-semibold text-blue-900 mb-4">Upload Images</h3>
-        {draftId && (
-          <p className="text-sm text-gray-500 mb-4">
-            Draft saved automatically
-          </p>
-        )}
-        <div className="grid grid-cols-5 gap-4">
-          {images.map((image, index) => (
-            <div key={index} className="relative group">
-              <img
-                src={image.url}
-                alt={`Upload ${index + 1}`}
-                className="w-full h-24 object-cover rounded-lg"
-              />
-              <button
-                type="button"
-                onClick={() => removeImage(index)}
-                className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-          {images.length < 10 && (
-            <label className="w-full h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-blue-500 transition-colors">
-              {isUploading ? (
-                <Loader2 className="animate-spin text-blue-500" />
-              ) : (
-                <>
-                  <Image size={24} className="text-gray-400 mb-2" />
-                  <span className="text-sm text-gray-500">Add Image</span>
-                </>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        handlePreviewClick();
+      }}
+      className="space-y-6"
+      noValidate
+    >
+      <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="rounded-xl bg-blue-600 p-2 text-white">
+            <Sparkles size={20} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold text-blue-950">Smart Assist</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Use address autocomplete, suggested pricing, compressed uploads, and ordered cover images to post faster.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium">
+              <span className={`rounded-full px-3 py-1 ${placesReady ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'}`}>
+                {placesReady ? 'Address autofill ready' : 'Manual address fallback'}
+              </span>
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700 ring-1 ring-blue-200">
+                Draft autosave active
+              </span>
+              {priceSuggestion?.median && (
+                <button
+                  type="button"
+                  onClick={applySuggestedPrice}
+                  className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                >
+                  Apply suggested price {formatNaira(priceSuggestion.median)}
+                </button>
               )}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                onChange={handleImageUpload}
-                className="hidden"
-                disabled={isUploading}
-              />
-            </label>
-          )}
+            </div>
+          </div>
         </div>
-        <p className="text-xs text-gray-500 mt-2">
-          Supported formats: JPEG, PNG, WebP. Max size: 5MB per image.
-        </p>
       </div>
+
+      <ListingImageUploader
+        images={images}
+        draftId={draftId}
+        userId={user?.uid}
+        onDraftIdChange={handleDraftIdChange}
+        onImagesChange={handleImagesChange}
+        onRemoveImage={removeImage}
+        onUploadingChange={setIsUploading}
+        disabled={isSubmitting}
+      />
 
       {/* Basic Property Details */}
       <div className="bg-white rounded-xl shadow-md p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-4">Basic Details</h3>
+        {missingFields.length > 0 && (
+          <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            Missing required fields are highlighted in red.
+          </p>
+        )}
         <div className="grid md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -536,7 +740,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
               type="text"
               name="title"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('title')}
               value={formData.title}
               onChange={handleInputChange}
               placeholder="e.g., Modern 3 Bedroom Apartment"
@@ -550,7 +754,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
             <select
               name="propertyType"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('propertyType')}
               value={formData.propertyType}
               onChange={handleInputChange}
             >
@@ -569,10 +773,11 @@ export default function PropertyForm({ onSubmit, onCancel }) {
             <div className="relative">
               <MapPin size={18} className="absolute left-2 top-2.5 text-gray-400" />
               <input
+                ref={locationInputRef}
                 type="text"
                 name="location"
                 required
-                className="w-full p-2 pl-8 border rounded-lg"
+                className={`${getFieldClass('location')} pl-8`}
                 value={formData.location}
                 onChange={handleInputChange}
                 placeholder="e.g., Lekki Phase 1, Lagos"
@@ -588,7 +793,8 @@ export default function PropertyForm({ onSubmit, onCancel }) {
               name="description"
               required
               rows={4}
-              className="w-full p-2 border rounded-lg"
+              maxLength={5000}
+              className={getFieldClass('description')}
               value={formData.description}
               onChange={handleInputChange}
               placeholder="Describe your property in detail..."
@@ -606,6 +812,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
               Street
             </label>
             <input
+              ref={streetInputRef}
               type="text"
               name="address.street"
               className="w-full p-2 border rounded-lg"
@@ -619,6 +826,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
               Town
             </label>
             <input
+              ref={townInputRef}
               type="text"
               name="address.town"
               className="w-full p-2 border rounded-lg"
@@ -632,6 +840,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
               State
             </label>
             <input
+              ref={stateInputRef}
               type="text"
               name="address.state"
               className="w-full p-2 border rounded-lg"
@@ -808,7 +1017,33 @@ export default function PropertyForm({ onSubmit, onCancel }) {
 
       {/* Pricing Details */}
       <div className="bg-white rounded-xl shadow-md p-6">
-        <h3 className="text-lg font-semibold text-blue-900 mb-4">Pricing Details</h3>
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-blue-900">Pricing Details</h3>
+            <p className="text-sm text-gray-500">Suggestions are based on similar active listings and can be overridden.</p>
+          </div>
+          <div className="min-h-8">
+            {isSuggestingPrice ? (
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
+                <Loader2 size={14} className="animate-spin" />
+                Checking range
+              </span>
+            ) : priceSuggestion?.median ? (
+              <button
+                type="button"
+                onClick={applySuggestedPrice}
+                className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
+              >
+                Suggested {formatNaira(priceSuggestion.min)} - {formatNaira(priceSuggestion.max)}
+                <span className="text-xs text-emerald-600">Use median</span>
+              </button>
+            ) : (
+              <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700 ring-1 ring-amber-100">
+                Add location and type for price range
+              </span>
+            )}
+          </div>
+        </div>
         <div className="grid md:grid-cols-2 gap-6">
           {/* Sale/Rent Selector */}
           <div>
@@ -818,7 +1053,7 @@ export default function PropertyForm({ onSubmit, onCancel }) {
             <select
               name="listingType"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('listingType')}
               value={formData.listingType}
               onChange={handleInputChange}
             >
@@ -834,12 +1069,12 @@ export default function PropertyForm({ onSubmit, onCancel }) {
                 Sale Price (₦) *
               </label>
               <div className="relative">
-                <DollarSign size={18} className="absolute left-2 top-2.5 text-gray-400" />
+                <span className="absolute left-2 top-2.5 text-sm font-semibold text-gray-500">₦</span>
                 <input
                   type="text"
                   name="salePrice"
                   required
-                  className="w-full p-2 pl-8 border rounded-lg"
+                  className={`${getFieldClass('salePrice')} pl-8`}
                   value={formatPrice(formData.salePrice)}
                   onChange={(e) => {
                     const parsedValue = parsePrice(e.target.value);
@@ -883,12 +1118,12 @@ export default function PropertyForm({ onSubmit, onCancel }) {
                 Rent Per Month (₦) *
               </label>
               <div className="relative">
-                <DollarSign size={18} className="absolute left-2 top-2.5 text-gray-400" />
+                <span className="absolute left-2 top-2.5 text-sm font-semibold text-gray-500">₦</span>
                 <input
                   type="text"
                   name="rentAmount.monthly"
                   required
-                  className="w-full p-2 pl-8 border rounded-lg"
+                  className={`${getFieldClass('rentAmount.monthly')} pl-8`}
                   value={formatPrice(formData.rentAmount.monthly)}
                   onChange={(e) => {
                     const parsedValue = parsePrice(e.target.value);
@@ -913,12 +1148,12 @@ export default function PropertyForm({ onSubmit, onCancel }) {
                 Rent Per Annum (₦) *
               </label>
               <div className="relative">
-                <DollarSign size={18} className="absolute left-2 top-2.5 text-gray-400" />
+                <span className="absolute left-2 top-2.5 text-sm font-semibold text-gray-500">₦</span>
                 <input
                   type="text"
                   name="rentAmount.annual"
                   required
-                  className="w-full p-2 pl-8 border rounded-lg"
+                  className={`${getFieldClass('rentAmount.annual')} pl-8`}
                   value={formatPrice(formData.rentAmount.annual)}
                   onChange={(e) => {
                     const parsedValue = parsePrice(e.target.value);
@@ -1219,29 +1454,187 @@ export default function PropertyForm({ onSubmit, onCancel }) {
 
       {/* Legacy Price Field - Hidden as it's now auto-calculated from listingType selection */}
 
+      {isPreviewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6">
+          <div className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">Preview advert</p>
+                <h3 className="text-xl font-bold text-blue-950">Review before going public</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(false)}
+                className="rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                aria-label="Close preview"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="max-h-[calc(92vh-150px)] overflow-y-auto p-5">
+              <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+                  {previewImage ? (
+                    <img
+                      src={previewImage}
+                      alt={formData.title || 'Property preview'}
+                      className="h-64 w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-64 items-center justify-center bg-blue-50 text-sm font-semibold text-blue-900">
+                      No image selected
+                    </div>
+                  )}
+                  <div className="space-y-3 p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-2xl font-bold text-slate-950">{formData.title || 'Untitled property'}</h4>
+                        <p className="mt-1 flex items-center text-sm text-gray-600">
+                          <MapPin className="mr-1.5 h-4 w-4 text-blue-500" />
+                          {formData.location || 'Location not set'}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-emerald-50 px-4 py-2 text-base font-bold text-emerald-700 ring-1 ring-emerald-100">
+                        {getPreviewPrice()}
+                      </span>
+                    </div>
+
+                    <p className="whitespace-pre-line text-sm leading-6 text-gray-700">
+                      {formData.description || 'No description added.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                    <h5 className="mb-3 font-semibold text-gray-900">Key details</h5>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-lg bg-white p-3">
+                        <p className="text-xs font-medium uppercase text-gray-500">Type</p>
+                        <p className="font-semibold text-gray-900">{getPropertyTypeLabel()}</p>
+                      </div>
+                      <div className="rounded-lg bg-white p-3">
+                        <p className="text-xs font-medium uppercase text-gray-500">Listing</p>
+                        <p className="font-semibold text-gray-900">{formData.listingType === 'sale' ? 'For Sale' : 'For Rent'}</p>
+                      </div>
+                      <div className="rounded-lg bg-white p-3">
+                        <p className="text-xs font-medium uppercase text-gray-500">Bedrooms</p>
+                        <p className="font-semibold text-gray-900">{formData.bedrooms || 'N/A'}</p>
+                      </div>
+                      <div className="rounded-lg bg-white p-3">
+                        <p className="text-xs font-medium uppercase text-gray-500">Bathrooms</p>
+                        <p className="font-semibold text-gray-900">{formData.bathrooms || 'N/A'}</p>
+                      </div>
+                      <div className="rounded-lg bg-white p-3">
+                        <p className="text-xs font-medium uppercase text-gray-500">Parking</p>
+                        <p className="font-semibold text-gray-900">
+                          {formData.parking.available ? `${formData.parking.spaces || 'Yes'} available` : 'Not listed'}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white p-3">
+                        <p className="text-xs font-medium uppercase text-gray-500">Images</p>
+                        <p className="font-semibold text-gray-900">{images.length}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-100 bg-white p-4">
+                    <h5 className="mb-3 font-semibold text-gray-900">Amenities</h5>
+                    {selectedAmenities.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedAmenities.map((amenity) => (
+                          <span key={amenity} className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                            {amenity}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">No amenities selected.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-gray-100 bg-white p-4">
+                    <h5 className="mb-3 font-semibold text-gray-900">Contact shown on advert</h5>
+                    <div className="space-y-2 text-sm text-gray-700">
+                      <p><span className="font-medium text-gray-900">Phone:</span> {formData.contact.phone || 'Not provided'}</p>
+                      <p><span className="font-medium text-gray-900">Email:</span> {formData.contact.email || 'Not provided'}</p>
+                      <p><span className="font-medium text-gray-900">Website:</span> {formData.contact.website || 'Not provided'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-gray-100 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(false)}
+                className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 font-semibold text-gray-700 hover:bg-gray-100"
+              >
+                Edit advert
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSubmitting || isUploading}
+                className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Posting...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="mr-2 h-5 w-5" />
+                    Confirm & Post
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Submit Buttons */}
-      <div className="flex justify-end gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
           onClick={handleCancel}
-          className="px-6 py-2 text-gray-600 hover:text-gray-800"
+          className="px-6 py-2 border border-red-400 text-red-700 rounded-lg hover:bg-red-700 hover:text-white hover:border-red-700 transition-colors sm:w-auto"
         >
           Cancel
         </button>
-        <button
-          type="submit"
-          disabled={isSubmitting || isUploading}
-          className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="animate-spin" size={20} />
-              <span>Posting...</span>
-            </>
-          ) : (
-            <span>Post Property</span>
-          )}
-        </button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={handlePreviewClick}
+            disabled={isSubmitting || isUploading}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-500 bg-white px-6 py-2 font-semibold text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-50"
+          >
+            <Eye size={20} />
+            <span>Preview Ad</span>
+          </button>
+          <button
+            type="button"
+            onClick={handlePreviewClick}
+            disabled={isSubmitting || isUploading}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isUploading ? (
+              <>
+                <Loader2 className="animate-spin" size={20} />
+                <span>Uploading...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle size={20} />
+                <span>Post Property</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </form>
   );

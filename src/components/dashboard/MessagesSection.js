@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   MessageCircle,
   Send,
@@ -23,16 +23,7 @@ const MessagesSection = () => {
   const [activeTab, setActiveTab] = useState('received'); // 'sent' or 'received'
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Load messages on component mount and tab change
-  useEffect(() => {
-    if (user) {
-      loadMessages();
-    } else {
-      setLoading(false);
-    }
-  }, [activeTab, user]);
-
-  const loadMessages = async () => {
+  const loadMessages = useCallback(async () => {
     try {
       setLoading(true);
       if (!user) {
@@ -49,7 +40,16 @@ const MessagesSection = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, user]);
+
+  // Load messages on component mount and tab change
+  useEffect(() => {
+    if (user) {
+      loadMessages();
+    } else {
+      setLoading(false);
+    }
+  }, [loadMessages, user]);
 
   const markAsRead = async (messageId) => {
     try {

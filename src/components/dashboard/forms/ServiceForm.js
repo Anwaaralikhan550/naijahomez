@@ -1,7 +1,7 @@
 'use client';
 // components/dashboard/forms/ServiceForm.js
 import React, { useState } from 'react';
-import { uploadToS3 } from '@/utils/s3Upload';
+import { AD_IMAGE_ACCEPT, uploadToS3, validateAdImageFiles } from '@/utils/s3Upload';
 import { Image, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
@@ -11,6 +11,7 @@ export default function ServiceForm({ onSubmit, onCancel }) {
   const [images, setImages] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [missingFields, setMissingFields] = useState([]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -23,22 +24,25 @@ export default function ServiceForm({ onSubmit, onCancel }) {
 
   const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
-    
+
     if (images.length + files.length > 10) {
       toast.error('Maximum 10 images allowed');
       return;
     }
 
+    const validFiles = validateAdImageFiles(files, toast.error);
+    if (validFiles.length === 0) return;
+
     setIsUploading(true);
-    
+
     try {
-      const uploadPromises = files.map(async (file) => {
-        const url = await uploadToS3(file, null, user?.uid);
+      const uploadPromises = validFiles.map(async (file) => {
+        const { url } = await uploadToS3(file, null, user?.uid);
         return { url };
       });
 
       const newImages = await Promise.all(uploadPromises);
-      setImages(prev => [...prev, ...newImages]);
+      setImages((prev) => [...prev, ...newImages]);
       toast.success('Images uploaded successfully');
     } catch (error) {
       console.error('Upload error:', error);
@@ -49,17 +53,26 @@ export default function ServiceForm({ onSubmit, onCancel }) {
   };
 
   const removeImage = (index) => {
-    setImages(prev => prev.filter((_, i) => i !== index));
+    setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (images.length === 0) {
       toast.error('Please upload at least one image');
       return;
     }
 
+    const requiredFields = ['title', 'serviceType', 'price', 'experience', 'location', 'availability', 'description'];
+    const missing = requiredFields.filter((field) => !String(formData[field] ?? '').trim());
+    if (missing.length > 0) {
+      setMissingFields(missing);
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    setMissingFields([]);
     setIsSubmitting(true);
     try {
       await onSubmit(formData, images);
@@ -72,14 +85,21 @@ export default function ServiceForm({ onSubmit, onCancel }) {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    if (missingFields.includes(name) && String(value || '').trim()) {
+      setMissingFields((prev) => prev.filter((field) => field !== name));
+    }
+
+    setFormData((prev) => ({
       ...prev,
       [name]: value
     }));
   };
 
+  const getFieldClass = (fieldName) =>
+    `w-full p-2 border rounded-lg ${missingFields.includes(fieldName) ? 'border-red-500 ring-1 ring-red-300 bg-red-50' : ''}`;
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
       {/* Image Upload Section */}
       <div className="bg-white rounded-xl shadow-md p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-4">Upload Images</h3>
@@ -112,7 +132,7 @@ export default function ServiceForm({ onSubmit, onCancel }) {
               )}
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept={AD_IMAGE_ACCEPT}
                 multiple
                 onChange={handleImageUpload}
                 className="hidden"
@@ -126,6 +146,11 @@ export default function ServiceForm({ onSubmit, onCancel }) {
       {/* Service Details */}
       <div className="bg-white rounded-xl shadow-md p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-4">Service Details</h3>
+        {missingFields.length > 0 && (
+          <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            Missing required fields are highlighted in red.
+          </p>
+        )}
         <div className="grid md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Service Title *</label>
@@ -133,7 +158,7 @@ export default function ServiceForm({ onSubmit, onCancel }) {
               type="text"
               name="title"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('title')}
               value={formData.title}
               onChange={handleInputChange}
             />
@@ -143,7 +168,7 @@ export default function ServiceForm({ onSubmit, onCancel }) {
             <select
               name="serviceType"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('serviceType')}
               value={formData.serviceType}
               onChange={handleInputChange}
             >
@@ -162,8 +187,8 @@ export default function ServiceForm({ onSubmit, onCancel }) {
               type="text"
               name="price"
               required
-              placeholder="e.g., ₦5000/hour or ₦50000 fixed"
-              className="w-full p-2 border rounded-lg"
+              placeholder="e.g., NGN 5000/hour or NGN 50000 fixed"
+              className={getFieldClass('price')}
               value={formData.price}
               onChange={handleInputChange}
             />
@@ -175,7 +200,7 @@ export default function ServiceForm({ onSubmit, onCancel }) {
               name="experience"
               min="0"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('experience')}
               value={formData.experience}
               onChange={handleInputChange}
             />
@@ -186,7 +211,7 @@ export default function ServiceForm({ onSubmit, onCancel }) {
               type="text"
               name="location"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('location')}
               value={formData.location}
               onChange={handleInputChange}
             />
@@ -198,7 +223,7 @@ export default function ServiceForm({ onSubmit, onCancel }) {
               name="availability"
               required
               placeholder="e.g., Mon-Fri, 9 AM - 5 PM"
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('availability')}
               value={formData.availability}
               onChange={handleInputChange}
             />
@@ -209,8 +234,9 @@ export default function ServiceForm({ onSubmit, onCancel }) {
               name="description"
               required
               rows={4}
+              maxLength={5000}
               placeholder="Describe your services, experience, and qualifications..."
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('description')}
               value={formData.description}
               onChange={handleInputChange}
             />
@@ -219,11 +245,11 @@ export default function ServiceForm({ onSubmit, onCancel }) {
       </div>
 
       {/* Submit Buttons */}
-      <div className="flex justify-end gap-4">
+      <div className="flex items-center justify-between gap-4">
         <button
           type="button"
           onClick={onCancel}
-          className="px-6 py-2 text-gray-600 hover:text-gray-800"
+          className="px-6 py-2 border border-red-400 text-red-700 rounded-lg hover:bg-red-700 hover:text-white hover:border-red-700 transition-colors"
         >
           Cancel
         </button>

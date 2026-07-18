@@ -1,12 +1,11 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { uploadToS3 } from '@/utils/s3Upload';
+import { AD_IMAGE_ACCEPT, uploadToS3, validateAdImageFiles } from '@/utils/s3Upload';
 import { Image, X, Loader2, Calendar, MapPin, Home, Users } from 'lucide-react';
 import apiService from '@/services/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
-import { db } from '@/lib/firebase-client';
-import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { getDraft, updateDraft, deleteDraft } from '@/lib/client-drafts';
 
 export default function HousemateForm({ onSubmit, onCancel }) {
   const { user } = useAuth();
@@ -79,6 +78,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
   const [images, setImages] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [missingFields, setMissingFields] = useState([]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -108,9 +108,9 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       const storedDraftId = localStorage.getItem('housemateDraftId');
       if (storedDraftId) {
         try {
-          const draftDoc = await getDoc(doc(db, 'drafts', storedDraftId));
-          if (draftDoc.exists()) {
-            const draftData = draftDoc.data();
+          const draftDoc = await getDraft(storedDraftId);
+          if (draftDoc.exists) {
+            const draftData = draftDoc.data;
             setDraftId(storedDraftId);
             setImages(draftData.imageUrls.map(url => ({ url })));
             if (draftData.formData) {
@@ -135,14 +135,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       return;
     }
 
-    // Validate file types and sizes
-    const validFiles = files.filter(file => {
-      const isValidType = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
-      const isValidSize = file.size <= 5 * 1024 * 1024; // 5MB limit
-      if (!isValidType) toast.error(`${file.name} is not a supported image type`);
-      if (!isValidSize) toast.error(`${file.name} is too large (max 5MB)`);
-      return isValidType && isValidSize;
-    });
+    const validFiles = validateAdImageFiles(files, toast.error);
 
     if (validFiles.length === 0) return;
 
@@ -161,7 +154,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       
       // Update draft with current form data
       if (draftId) {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           formData,
           updatedAt: new Date()
         });
@@ -198,7 +191,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
 
       // Update draft in Firebase
       if (draftId) {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           imageUrls: images.filter((_, i) => i !== index).map(img => img.url),
           updatedAt: new Date()
         });
@@ -220,13 +213,28 @@ export default function HousemateForm({ onSubmit, onCancel }) {
     }
 
     // Validate required fields
-    const requiredFields = ['title', 'description', 'price', 'location', 'propertyType'];
-    const missingFields = requiredFields.filter(field => !formData[field]);
+    const requiredFields = ['title', 'description', 'location', 'propertyType', 'advertType'];
+    const missing = requiredFields.filter((field) => !String(formData[field] ?? '').trim());
+
+    if (formData.advertType === 'room_for_rent') {
+      if (!String(formData.price || '').trim()) {
+        missing.push('price');
+      }
+    } else {
+      if (!String(formData.minPrice || '').trim()) {
+        missing.push('minPrice');
+      }
+      if (!String(formData.maxPrice || '').trim()) {
+        missing.push('maxPrice');
+      }
+    }
     
-    if (missingFields.length > 0) {
-      toast.error(`Please fill in all required fields: ${missingFields.join(', ')}`);
+    if (missing.length > 0) {
+      setMissingFields(missing);
+      toast.error('Please fill in all required fields');
       return;
     }
+    setMissingFields([]);
 
     setIsSubmitting(true);
     try {
@@ -244,7 +252,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       
       // Clean up draft
       if (draftId) {
-        await deleteDoc(doc(db, 'drafts', draftId));
+        await deleteDraft(draftId);
         localStorage.removeItem('housemateDraftId');
       }
 
@@ -259,6 +267,9 @@ export default function HousemateForm({ onSubmit, onCancel }) {
 
   const handleInputChange = async (e) => {
     const { name, value, type, checked } = e.target;
+    if (missingFields.includes(name) && String(value || '').trim()) {
+      setMissingFields((prev) => prev.filter((field) => field !== name));
+    }
     
     // Handle checkboxes for amenities
     if (name === 'amenities') {
@@ -283,7 +294,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       // Update draft with new form data
       if (draftId) {
         try {
-          await updateDoc(doc(db, 'drafts', draftId), {
+          await updateDraft(draftId, {
             formData: updatedFormData,
             updatedAt: new Date()
           });
@@ -315,7 +326,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       
       if (draftId) {
         try {
-          await updateDoc(doc(db, 'drafts', draftId), {
+          await updateDraft(draftId, {
             formData: updatedFormData,
             updatedAt: new Date()
           });
@@ -337,7 +348,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       
       if (draftId) {
         try {
-          await updateDoc(doc(db, 'drafts', draftId), {
+          await updateDraft(draftId, {
             formData: updatedFormData,
             updatedAt: new Date()
           });
@@ -359,7 +370,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
     // Update draft with new form data
     if (draftId) {
       try {
-        await updateDoc(doc(db, 'drafts', draftId), {
+        await updateDraft(draftId, {
           formData: updatedFormData,
           updatedAt: new Date()
         });
@@ -375,7 +386,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       if (window.confirm('Are you sure you want to discard this draft?')) {
         try {
           // Delete draft document
-          await deleteDoc(doc(db, 'drafts', draftId));
+          await deleteDraft(draftId);
           localStorage.removeItem('housemateDraftId');
           
           // Delete all uploaded images
@@ -407,9 +418,12 @@ export default function HousemateForm({ onSubmit, onCancel }) {
     if (!value) return '';
     return value.toString().replace(/,/g, '');
   };
+
+  const getFieldClass = (fieldName) =>
+    `w-full p-2 border rounded-lg ${missingFields.includes(fieldName) ? 'border-red-500 ring-1 ring-red-300 bg-red-50' : ''}`;
   
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
       {/* Image Upload Section */}
       <div className="bg-white rounded-xl shadow-md p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-4">Upload Images</h3>
@@ -447,7 +461,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
               )}
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept={AD_IMAGE_ACCEPT}
                 multiple
                 onChange={handleImageUpload}
                 className="hidden"
@@ -464,6 +478,11 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       {/* Basic Listing Details */}
       <div className="bg-white rounded-xl shadow-md p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-4">Basic Listing Details</h3>
+        {missingFields.length > 0 && (
+          <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            Missing required fields are highlighted in red.
+          </p>
+        )}
         <div className="grid md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -473,7 +492,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
               type="text"
               name="title"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('title')}
               value={formData.title}
               onChange={handleInputChange}
               placeholder="e.g., Spacious Room in Shared Apartment in Lekki"
@@ -487,7 +506,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
             <select
               name="advertType"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('advertType')}
               value={formData.advertType}
               onChange={handleInputChange}
             >
@@ -506,7 +525,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
             <select
               name="propertyType"
               required
-              className="w-full p-2 border rounded-lg"
+              className={getFieldClass('propertyType')}
               value={formData.propertyType}
               onChange={handleInputChange}
             >
@@ -528,7 +547,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
                 type="text"
                 name="location"
                 required
-                className="w-full p-2 pl-8 border rounded-lg"
+                className={`${getFieldClass('location')} pl-8`}
                 value={formData.location}
                 onChange={handleInputChange}
                 placeholder="e.g., Lekki Phase 1, Lagos"
@@ -587,7 +606,8 @@ export default function HousemateForm({ onSubmit, onCancel }) {
               name="description"
               required
               rows={4}
-              className="w-full p-2 border rounded-lg"
+              maxLength={5000}
+              className={getFieldClass('description')}
               value={formData.description}
               onChange={handleInputChange}
               placeholder="Describe the property, room, and surrounding area in detail..."
@@ -609,7 +629,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
                 type="text"
                 name="price"
                 required
-                className="w-full p-2 border rounded-lg"
+                className={getFieldClass('price')}
                 value={formatPrice(formData.price)}
                 onChange={(e) => {
                   const parsedValue = parsePrice(e.target.value);
@@ -635,7 +655,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
                   type="text"
                   name="minPrice"
                   required
-                  className="w-full p-2 border rounded-lg"
+                  className={getFieldClass('minPrice')}
                   value={formatPrice(formData.minPrice)}
                   onChange={(e) => {
                     const parsedValue = parsePrice(e.target.value);
@@ -659,7 +679,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
                   type="text"
                   name="maxPrice"
                   required
-                  className="w-full p-2 border rounded-lg"
+                  className={getFieldClass('maxPrice')}
                   value={formatPrice(formData.maxPrice)}
                   onChange={(e) => {
                     const parsedValue = parsePrice(e.target.value);
@@ -816,6 +836,7 @@ export default function HousemateForm({ onSubmit, onCancel }) {
             <textarea
               name="houseRules"
               rows={3}
+              maxLength={2000}
               className="w-full p-2 border rounded-lg"
               value={formData.houseRules}
               onChange={handleInputChange}
@@ -826,11 +847,11 @@ export default function HousemateForm({ onSubmit, onCancel }) {
       </div>
 
       {/* Submit Buttons */}
-      <div className="flex justify-end gap-4">
+      <div className="flex items-center justify-between gap-4">
         <button
           type="button"
           onClick={handleCancel}
-          className="px-6 py-2 text-gray-600 hover:text-gray-800"
+          className="px-6 py-2 border border-red-400 text-red-700 rounded-lg hover:bg-red-700 hover:text-white hover:border-red-700 transition-colors"
         >
           Cancel
         </button>

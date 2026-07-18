@@ -1,11 +1,12 @@
 'use client';
 // components/dashboard/PostAdSection.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import apiService from '@/services/api';
 import { Home, Package, Briefcase, Bell } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import PropertyForm from './forms/PropertyForm';
 import MarketplaceForm from './forms/MarketplaceForm';
 import ServiceForm from './forms/ServiceForm';
@@ -15,7 +16,9 @@ import HousemateForm from './forms/HousemateForm';
 export default function PostAdSection() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [adType, setAdType] = useState('');
+  const postAdSectionRef = useRef(null);
 
   // Check URL parameters for pre-selected ad type
   useEffect(() => {
@@ -33,11 +36,13 @@ export default function PostAdSection() {
       }
   
       // Determine collection name based on ad type
-      const collectionName = 
-        formData.type === 'property' ? 'properties' : 
-        formData.type === 'marketplace' ? 'marketplace' : 
-        formData.type === 'service' ? 'services' : 
-        formData.type === 'notice' ? 'noticeboard' : null;
+      // Use adType state variable instead of formData.type since forms may not include type
+      const collectionName =
+        adType === 'property' ? 'properties' :
+        adType === 'marketplace' ? 'marketplace' :
+        adType === 'service' ? 'services' :
+        adType === 'housemate' ? 'housemates' :
+        adType === 'notice' ? 'noticeboard' : null;
       
       if (!collectionName) {
         toast.error('Invalid ad type');
@@ -48,10 +53,14 @@ export default function PostAdSection() {
       console.log("Form data:", formData);
       console.log("Images:", images);
   
+      const hubCommunityId = searchParams.get('communityId');
+      const returnTo = searchParams.get('returnTo');
+
       // Prepare submission data
       const submissionData = {
         ...formData,
         imageUrls: images.map(img => img.url),
+        imageMeta: images.map(img => img.metadata || null),
         userId: user.uid,
         userEmail: user.email,
         userName: user.displayName || 'Anonymous',
@@ -59,22 +68,51 @@ export default function PostAdSection() {
         status: 'active',
         collectionName
       };
+
+      if (adType === 'marketplace' && hubCommunityId) {
+        submissionData.communityId = hubCommunityId;
+      }
   
       // Submit ad using apiService
       await apiService.createAd(submissionData);
-      toast.success('Ad posted successfully! View it in My Ads section.');
+      toast.success('Ad posted successfully!');
       setAdType(''); // Reset to type selection
+
+      if (adType === 'marketplace' && returnTo) {
+        router.push(returnTo);
+        return;
+      }
+
+      if (adType === 'marketplace' && hubCommunityId) {
+        router.push('/dashboard/community/marketplace');
+        return;
+      }
       
     } catch (error) {
       console.error('Submission error:', error);
-      toast.error(`Failed to post ad: ${error.message}`);
+      const errorMessage = typeof error?.message === 'string' && error.message.trim()
+        ? error.message
+        : 'Failed to post ad';
+      toast.error(errorMessage);
     }
+  };
+
+  const handleFormCancel = () => {
+    setAdType('');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        postAdSectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      });
+    });
   };
 
   // Render ad type selection
   if (!adType) {
     return (
-      <div className="grid md:grid-cols-4 gap-6">
+      <div ref={postAdSectionRef} id="post-ad-top" className="grid md:grid-cols-4 gap-6">
         {[
           {
             type: 'property',
@@ -129,21 +167,21 @@ export default function PostAdSection() {
 
   // Render appropriate form based on type
   return (
-    <div>
+    <div ref={postAdSectionRef} id="post-ad-top">
       {adType === 'property' && (
-        <PropertyForm onSubmit={handleSubmit} onCancel={() => setAdType('')} />
+        <PropertyForm onSubmit={handleSubmit} onCancel={handleFormCancel} />
       )}
       {adType === 'marketplace' && (
-        <MarketplaceForm onSubmit={handleSubmit} onCancel={() => setAdType('')} />
+        <MarketplaceForm onSubmit={handleSubmit} onCancel={handleFormCancel} />
       )}
       {adType === 'service' && (
-        <ServiceForm onSubmit={handleSubmit} onCancel={() => setAdType('')} />
+        <ServiceForm onSubmit={handleSubmit} onCancel={handleFormCancel} />
       )}
       {adType === 'housemate' && (
-        <HousemateForm onSubmit={handleSubmit} onCancel={() => setAdType('')} />
+        <HousemateForm onSubmit={handleSubmit} onCancel={handleFormCancel} />
       )}
       {adType === 'notice' && (
-        <NoticeForm onSubmit={handleSubmit} onCancel={() => setAdType('')} />
+        <NoticeForm onSubmit={handleSubmit} onCancel={handleFormCancel} />
       )}
     </div>
   );

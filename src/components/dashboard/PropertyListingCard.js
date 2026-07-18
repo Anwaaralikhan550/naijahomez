@@ -1,10 +1,20 @@
 'use client';
 import React from 'react';
 import Link from 'next/link';
-import { MapPin, Home, Bath, Car, DollarSign, Edit, Trash2, EyeIcon } from 'lucide-react';
+import Image from 'next/image';
+import { MapPin, Home, Bath, Car, DollarSign, Edit, Trash2, EyeIcon, Eye } from 'lucide-react';
+import ListingQrCode from '@/components/shared/ListingQrCode';
+import ListingWhatsAppButton from '@/components/shared/ListingWhatsAppButton';
 
 export default function PropertyListingCard({ property, onDelete }) {
     if (!property) return null;
+  const safePropertySegment = (() => {
+    const rawSlug = property.slug;
+    const rawId = property.id;
+    const slug = (typeof rawSlug === 'string' || typeof rawSlug === 'number') ? String(rawSlug).trim() : '';
+    const id = (typeof rawId === 'string' || typeof rawId === 'number') ? String(rawId).trim() : '';
+    return encodeURIComponent(slug || id);
+  })();
   // Check if it's an enhanced property with new fields
   const isEnhancedProperty = property.address || 
                             property.rentAmount || 
@@ -20,6 +30,8 @@ export default function PropertyListingCard({ property, onDelete }) {
   const propertyType = property.propertyType || property.type || '';
   const bedrooms = property.bedrooms || null;
   const bathrooms = property.bathrooms || null;
+  const contactPhone = property.contact?.phone || property.phoneNumber || property.whatsappNumber || property.userPhoneNumber;
+  const listingPath = safePropertySegment ? `/property/${safePropertySegment}` : '/property';
   // Format price helper
   const formatPrice = (value) => {
     if (!value) return '';
@@ -68,12 +80,15 @@ export default function PropertyListingCard({ property, onDelete }) {
     <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow">
       <div className="md:flex">
         {/* Property Image */}
-        <div className="md:w-1/3 relative">
-          <img
+        <div className="md:w-1/3 relative min-h-[12rem]">
+          <Image
             src={property.imageUrls?.[0] || '/api/placeholder/400/300'}
             alt={property.title || 'Property'}
-            className="h-48 md:h-full w-full object-cover"
+            fill
+            sizes="(max-width: 768px) 100vw, 33vw"
+            className="object-cover"
             loading="lazy"
+            unoptimized
           />
           <div className="absolute top-2 right-2 bg-blue-600 text-white px-2 py-1 rounded-full text-xs">
             {getPropertyTypeLabel(property.propertyType)}
@@ -83,9 +98,15 @@ export default function PropertyListingCard({ property, onDelete }) {
         {/* Property Details */}
         <div className="p-6 md:w-2/3">
           <div className="flex justify-between">
-            <h3 className="text-xl font-semibold text-blue-900 mb-2 truncate">
-              {property.title}
-            </h3>
+            <div className="min-w-0">
+              <h3 className="text-xl font-semibold text-blue-900 mb-2 line-clamp-2 min-h-[3.5rem]">
+                {property.title}
+              </h3>
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold mb-2">
+                <Eye className="w-3.5 h-3.5" />
+                <span>{property.viewCount || 0} views</span>
+              </div>
+            </div>
             
             {/* Price display */}
             <div className="text-lg font-bold text-blue-900">
@@ -102,7 +123,7 @@ export default function PropertyListingCard({ property, onDelete }) {
           {/* Location */}
           <div className="flex items-center text-gray-600 mb-3">
             <MapPin className="w-4 h-4 mr-1" />
-            <span className="truncate">{property.location}</span>
+            <span className="line-clamp-1">{property.location}</span>
             
             {/* Address (if enhanced) */}
             {isEnhancedProperty && property.address && property.address.town && (
@@ -188,7 +209,7 @@ export default function PropertyListingCard({ property, onDelete }) {
             
             <div className="flex gap-2">
               <Link 
-                href={`/property/${property.slug || property.id}`}
+                href={listingPath}
                 className="text-blue-600 hover:text-blue-800 p-1 rounded-full hover:bg-blue-50"
                 title="View Listing"
               >
@@ -211,6 +232,21 @@ export default function PropertyListingCard({ property, onDelete }) {
                 <Trash2 size={20} />
               </button>
             </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 border-t pt-4 md:grid-cols-[1fr_auto] md:items-center">
+            <ListingQrCode
+              url={listingPath}
+              title={title}
+              compact
+            />
+            <ListingWhatsAppButton
+              phone={contactPhone}
+              title={title}
+              listingId={property.id}
+              listingType="properties"
+              className="justify-center"
+            />
           </div>
         </div>
       </div>

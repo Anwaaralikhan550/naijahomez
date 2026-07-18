@@ -6,25 +6,27 @@ import {
   Shield, 
   Key, 
   Save,
-  Edit,
-  Phone,
+  Camera,
+  Loader2,
   Mail,
-  Eye,
-  EyeOff
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { OptimizedUpload } from '@/utils/optimizedUpload';
 import toast from 'react-hot-toast';
 
 export default function SettingsSection() {
   const { user, updateProfile } = useAuth();
   const [activeSection, setActiveSection] = useState('profile');
   const [loading, setLoading] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
   
   // Profile settings
   const [profileData, setProfileData] = useState({
     displayName: '',
     phoneNumber: '',
-    bio: ''
+    bio: '',
+    photoURL: ''
   });
   
   // Notification settings
@@ -47,10 +49,77 @@ export default function SettingsSection() {
       setProfileData({
         displayName: user.displayName || '',
         phoneNumber: user.phoneNumber || '',
-        bio: user.bio || ''
+        bio: user.bio || '',
+        photoURL: user.photoURL || ''
       });
     }
   }, [user]);
+
+  const getInitials = () => {
+    const name = profileData.displayName || user?.displayName || user?.email || 'User';
+    return name
+      .split(/[ @._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase() || 'U';
+  };
+
+  const handlePhotoUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!file.type?.startsWith('image/')) {
+      toast.error('Please choose an image file.');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Profile photo must be smaller than 10MB.');
+      return;
+    }
+
+    setPhotoUploading(true);
+    try {
+      const photoURL = await OptimizedUpload.uploadSingleFile(file, 'profiles', null, user?.uid, {
+        thresholdBytes: 0,
+        maxWidth: 512,
+        maxHeight: 512,
+        quality: 0.82,
+        outputType: 'image/webp',
+        fit: 'cover'
+      });
+
+      const result = await updateProfile({ photoURL });
+      if (result?.error) throw new Error(result.error);
+
+      setProfileData((current) => ({ ...current, photoURL }));
+      toast.success('Profile photo updated.');
+    } catch (error) {
+      console.error('Profile photo upload error:', error);
+      toast.error(error.message || 'Failed to upload profile photo.');
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    setPhotoUploading(true);
+    try {
+      const result = await updateProfile({ photoURL: '' });
+      if (result?.error) throw new Error(result.error);
+
+      setProfileData((current) => ({ ...current, photoURL: '' }));
+      toast.success('Profile photo removed.');
+    } catch (error) {
+      console.error('Profile photo remove error:', error);
+      toast.error(error.message || 'Failed to remove profile photo.');
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
 
   const handleProfileSave = async () => {
     setLoading(true);
@@ -59,12 +128,13 @@ export default function SettingsSection() {
       await updateProfile({
         displayName: profileData.displayName,
         phoneNumber: profileData.phoneNumber,
-        bio: profileData.bio
+        bio: profileData.bio,
+        photoURL: profileData.photoURL
       });
 
-      toast.success('✅ Profile updated successfully!');
+      toast.success('Profile updated successfully.');
     } catch (error) {
-      toast.error('❌ Failed to update profile');
+      toast.error('Failed to update profile.');
       console.error('Profile update error:', error);
     } finally {
       setLoading(false);
@@ -74,13 +144,13 @@ export default function SettingsSection() {
   const handleNotificationSave = () => {
     // Save notification preferences to localStorage or backend
     localStorage.setItem('notificationPreferences', JSON.stringify(notifications));
-    toast.success('✅ Notification preferences saved!');
+    toast.success('Notification preferences saved.');
   };
 
   const handlePrivacySave = () => {
     // Save privacy settings to localStorage or backend
     localStorage.setItem('privacySettings', JSON.stringify(privacy));
-    toast.success('✅ Privacy settings saved!');
+    toast.success('Privacy settings saved.');
   };
 
   const sections = [
@@ -90,8 +160,66 @@ export default function SettingsSection() {
     { id: 'account', label: 'Account', icon: Key }
   ];
 
+  const kycStatus = String(user?.kycStatus || 'unverified').toLowerCase();
+  const isUnverified = kycStatus !== 'verified';
+  const readableKycStatus = kycStatus.charAt(0).toUpperCase() + kycStatus.slice(1);
+
   const renderProfileSection = () => (
     <div className="space-y-6">
+      <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="relative aspect-square h-20 w-20 shrink-0 overflow-hidden rounded-full bg-blue-600 text-white shadow-sm ring-2 ring-white">
+            {profileData.photoURL ? (
+              <img
+                src={profileData.photoURL}
+                alt={profileData.displayName || 'Profile photo'}
+                className="block h-full w-full object-cover object-center"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-xl font-semibold">
+                {getInitials()}
+              </div>
+            )}
+            {photoUploading ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-900/55">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <h4 className="font-semibold text-gray-900">Profile photo</h4>
+            <p className="mt-1 text-sm text-gray-600">
+              Upload a clear photo so agents and buyers can recognize your account.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <label className="inline-flex cursor-pointer items-center rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">
+                {photoUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                {profileData.photoURL ? 'Change photo' : 'Upload photo'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,image/avif,image/heic,image/heif"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                  disabled={photoUploading}
+                />
+              </label>
+              {profileData.photoURL ? (
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  disabled={photoUploading}
+                  className="inline-flex items-center rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Remove
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Display Name
@@ -303,11 +431,22 @@ export default function SettingsSection() {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {isUnverified && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-medium text-amber-800">
+            Verify your account to boost trust and improve listing performance.
+          </p>
+          <p className="text-xs text-amber-700 mt-1">
+            Current KYC status: {readableKycStatus}. Visit the Verification tab to upload your documents.
+          </p>
+        </div>
+      )}
       <div className="bg-white rounded-xl shadow-md overflow-hidden">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
           <h2 className="text-2xl font-bold text-white">Settings</h2>
           <p className="text-blue-100">Manage your account preferences</p>
+          <p className="text-xs text-blue-100 mt-1">KYC Status: {readableKycStatus}</p>
         </div>
         
         <div className="flex">
