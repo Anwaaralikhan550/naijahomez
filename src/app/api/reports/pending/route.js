@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getAdminFirestore } from '@/lib/firebase-admin';
 import { isAdmin } from '@/lib/auth-middleware';
+import listingReportRepository from '@/lib/db/listing-report-repository.cjs';
 
 const ALLOWED_QUEUE_STATUSES = new Set(['pending', 'resolved']);
 
@@ -24,25 +24,6 @@ function sanitizeText(value, maxLength = 120) {
     .slice(0, maxLength);
 }
 
-function toIso(value) {
-  if (!value) return null;
-  if (value?.toDate && typeof value.toDate === 'function') return value.toDate().toISOString();
-  if (value?.seconds) return new Date(value.seconds * 1000).toISOString();
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
-function mapReportDocument(doc) {
-  const data = doc.data() || {};
-  return {
-    id: doc.id,
-    ...data,
-    createdAt: toIso(data.createdAt),
-    updatedAt: toIso(data.updatedAt),
-    resolvedAt: toIso(data.resolvedAt)
-  };
-}
-
 export async function GET(request) {
   try {
     const adminResult = await isAdmin(request);
@@ -56,19 +37,13 @@ export async function GET(request) {
     const rawLimit = Number(url.searchParams.get('limit') || 100);
     const limit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 100, 200));
 
-    const db = getAdminFirestore();
-    const queueSnap = await db
-      .collection('listing_reports')
-      .where('status', '==', status)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
+    const reports = await listingReportRepository.listReportsByStatus({ status, limit });
 
     return NextResponse.json({
       success: true,
       status,
-      reports: queueSnap.docs.map(mapReportDocument),
-      count: queueSnap.size
+      reports,
+      count: reports.length
     });
   } catch (error) {
     console.error('GET /api/reports/pending failed:', error);

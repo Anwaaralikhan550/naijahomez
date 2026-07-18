@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
+import listingReportRepository from '@/lib/db/listing-report-repository.cjs';
 
 const errorResponse = (message, code, status = 500) =>
   NextResponse.json({ success: false, error: message, code }, { status });
@@ -156,50 +156,35 @@ export async function POST(request) {
       reporterId = authResult.userId;
     }
 
-    const db = getAdminFirestore();
-
     if (reporterId) {
       const duplicateWindowStart = new Date(Date.now() - DUPLICATE_WINDOW_MS);
-      const existingReportsSnapshot = await db
-        .collection('listing_reports')
-        .where('reporterId', '==', reporterId)
-        .where('listingId', '==', listingId)
-        .where('reason', '==', reason)
-        .where('createdAt', '>=', duplicateWindowStart)
-        .orderBy('createdAt', 'desc')
-        .limit(1)
-        .get();
-      if (!existingReportsSnapshot.empty) {
+      const duplicate = await listingReportRepository.findDuplicateReport({
+        reporterId,
+        listingId,
+        reason,
+        sinceDate: duplicateWindowStart
+      });
+      if (duplicate) {
         return errorResponse('Duplicate report detected. Please wait before submitting again.', 'DUPLICATE_REPORT', 429);
       }
     }
 
-    const now = new Date();
-    const reportData = {
+    const report = await listingReportRepository.createListingReport({
       listingId,
-      listingTitle: listingTitle || 'Untitled Listing',
-      listingType: listingType || null,
-      collectionName: collectionName || null,
-      listingSlug: listingSlug || null,
-      listingPath: listingPath || null,
-      listingUrl: listingUrl || null,
+      collectionName: collectionName || '',
       reporterId,
       reason,
       description: description || null,
-      status: 'pending',
-      resolutionAction: null,
-      resolvedAt: null,
-      resolvedBy: null,
-      timestamp: now,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    const docRef = await db.collection('listing_reports').add(reportData);
+      listingTitle: listingTitle || 'Untitled Listing',
+      listingType: listingType || null,
+      listingSlug: listingSlug || null,
+      listingPath: listingPath || null,
+      listingUrl: listingUrl || null
+    });
 
     return NextResponse.json({
       success: true,
-      id: docRef.id,
+      id: report.id,
       message: 'Report submitted successfully.'
     });
   } catch (error) {

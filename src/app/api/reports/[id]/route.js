@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { isAdmin } from '@/lib/auth-middleware';
+import listingReportRepository from '@/lib/db/listing-report-repository.cjs';
 
 const ALLOWED_QUEUE_STATUSES = new Set(['pending', 'resolved']);
 const ALLOWED_ACTIONS = new Set(['dismiss', 'flag', 'hide', 'delete']);
@@ -67,23 +68,6 @@ function getCandidateCollections(report) {
   return candidates;
 }
 
-function mapReportDocument(doc) {
-  const data = doc.data() || {};
-  return {
-    id: doc.id,
-    ...data,
-    createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt || null,
-    updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt || null,
-    resolvedAt: data.resolvedAt?.toDate ? data.resolvedAt.toDate().toISOString() : data.resolvedAt || null
-  };
-}
-
-function createCodedError(code, message) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
-
 async function findListingDoc(db, report, overrideListingId = '') {
   const candidateCollections = getCandidateCollections(report);
   if (candidateCollections.length === 0) {
@@ -123,24 +107,15 @@ export async function GET(request, { params }) {
     }
 
     const { id } = params;
-    const db = getAdminFirestore();
 
     if (id === 'pending') {
       const url = new URL(request.url);
       const rawStatus = sanitizeText(url.searchParams.get('status') || 'pending', 40).toLowerCase();
       const status = ALLOWED_QUEUE_STATUSES.has(rawStatus) ? rawStatus : 'pending';
 
-      const queueSnap = await db
-        .collection('listing_reports')
-        .where('status', '==', status)
-        .orderBy('createdAt', 'desc')
-        .limit(100)
-        .get();
+      const reports = await listingReportRepository.listReportsByStatus({ status, limit: 100 });
 
-      return NextResponse.json({
-        success: true,
-        reports: queueSnap.docs.map(mapReportDocument)
-      });
+      return NextResponse.json({ success: true, reports });
     }
 
     const reportId = sanitizeText(id, 160);
@@ -148,16 +123,12 @@ export async function GET(request, { params }) {
       return errorResponse('Invalid report id', 'INVALID_REPORT_ID', 400);
     }
 
-    const reportRef = db.collection('listing_reports').doc(reportId);
-    const reportSnap = await reportRef.get();
-    if (!reportSnap.exists) {
+    const report = await listingReportRepository.getReportById(reportId);
+    if (!report) {
       return errorResponse('Report not found', 'REPORT_NOT_FOUND', 404);
     }
 
-    return NextResponse.json({
-      success: true,
-      report: mapReportDocument(reportSnap)
-    });
+    return NextResponse.json({ success: true, report });
   } catch (error) {
     console.error('GET /api/reports/[id] failed:', error);
     return errorResponse('Failed to fetch report data', 'REPORT_FETCH_FAILED', 500);
@@ -189,29 +160,26 @@ export async function PATCH(request, { params }) {
       return errorResponse('Invalid moderation action', 'INVALID_MODERATION_ACTION', 400);
     }
 
-    const db = getAdminFirestore();
-    const reportRef = db.collection('listing_reports').doc(reportId);
-    const reportSnap = await reportRef.get();
-    if (!reportSnap.exists) {
+    const reportData = await listingReportRepository.getReportById(reportId);
+    if (!reportData) {
       return errorResponse('Report not found', 'REPORT_NOT_FOUND', 404);
     }
 
-    const reportData = reportSnap.data() || {};
     const now = new Date();
 
-    const reportUpdate = {
-      status: 'resolved',
-      resolutionAction: action,
-      resolvedBy: adminResult.userId || null,
-      resolvedAt: now,
-      updatedAt: now
-    };
-
     if (action === 'dismiss') {
-      await reportRef.update(reportUpdate);
+      await listingReportRepository.resolveReport(reportId, {
+        resolutionAction: action,
+        resolvedBy: adminResult.userId || null
+      });
       return NextResponse.json({ success: true, message: 'Report dismissed' });
     }
 
+    // Report (Postgres) and listing (Firestore-shim) live in separate
+    // backends now, so this can no longer be one atomic transaction.
+    // Listing update runs first since it's the side effect; if the report
+    // update below fails, retrying is safe (the listing write is idempotent).
+    const db = getAdminFirestore();
     const { collectionName, docRef } = await findListingDoc(
       db,
       reportData,
@@ -227,44 +195,25 @@ export async function PATCH(request, { params }) {
     }
 
     const mappedStatus = LISTING_STATUS_MAP[action] || 'flagged';
-    try {
-      await db.runTransaction(async (transaction) => {
-        const [listingSnap, latestReportSnap] = await Promise.all([
-          transaction.get(docRef),
-          transaction.get(reportRef)
-        ]);
-
-        if (!latestReportSnap.exists) {
-          throw createCodedError('REPORT_NOT_FOUND', 'Report not found');
-        }
-
-        if (!listingSnap.exists) {
-          throw createCodedError('LISTING_NOT_FOUND', 'Target listing not found');
-        }
-
-        transaction.update(docRef, {
-          status: mappedStatus,
-          moderationStatus: action === 'flag' ? 'flagged' : mappedStatus,
-          flaggedBy: adminResult.userId || null,
-          flaggedAt: now,
-          updatedAt: now
-        });
-
-        transaction.update(reportRef, {
-          ...reportUpdate,
-          listingAction: action,
-          listingStatusAfterAction: mappedStatus
-        });
-      });
-    } catch (error) {
-      if (error?.code === 'REPORT_NOT_FOUND') {
-        return errorResponse('Report not found', 'REPORT_NOT_FOUND', 404);
-      }
-      if (error?.code === 'LISTING_NOT_FOUND') {
-        return errorResponse('Target listing not found. Please verify listing ID/slug.', 'TARGET_LISTING_NOT_FOUND', 404);
-      }
-      throw error;
+    const listingSnap = await docRef.get();
+    if (!listingSnap.exists) {
+      return errorResponse('Target listing not found. Please verify listing ID/slug.', 'TARGET_LISTING_NOT_FOUND', 404);
     }
+
+    await docRef.update({
+      status: mappedStatus,
+      moderationStatus: action === 'flag' ? 'flagged' : mappedStatus,
+      flaggedBy: adminResult.userId || null,
+      flaggedAt: now,
+      updatedAt: now
+    });
+
+    await listingReportRepository.resolveReport(reportId, {
+      resolutionAction: action,
+      resolvedBy: adminResult.userId || null,
+      listingAction: action,
+      listingStatusAfterAction: mappedStatus
+    });
 
     return NextResponse.json({
       success: true,
