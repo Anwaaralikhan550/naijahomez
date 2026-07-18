@@ -42,3 +42,19 @@ next-env.d.ts
 
 .vercel
 nul
+
+# logs and dev scratch files
+*.log
+tmp-*
+.tmp-*
+lint-output.txt
+
+# local tooling artifacts (not part of the app)
+.playwright-mcp/
+qa-e2e-artifacts/
+qa-screenshots/
+.codex-github-*/
+.gemini/
+
+# deploy archives (large, environment-specific)
+naija-deploy*.tar.gz
