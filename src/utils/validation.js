@@ -1,4 +1,10 @@
 // Comprehensive validation utilities for Hub system
+const DANGEROUS_TAGS = ['iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'meta', 'link', 'style', 'base'];
+const DANGEROUS_TAG_PATTERNS = DANGEROUS_TAGS.map((tag) => ({
+  open: new RegExp(`<${tag}[^>]*>`, 'gi'),
+  close: new RegExp(`</${tag}>`, 'gi'),
+  selfClose: new RegExp(`<${tag}[^>]*/>`, 'gi')
+}));
 
 // Email validation
 export const isValidEmail = (email) => {
@@ -280,14 +286,10 @@ export const sanitizeHTML = (html) => {
   sanitized = sanitized.replace(/expression\s*\(/gi, 'blocked(');
 
   // Remove dangerous tags entirely
-  const dangerousTags = ['iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'meta', 'link', 'style', 'base'];
-  dangerousTags.forEach(tag => {
-    const openTagRegex = new RegExp(`<${tag}[^>]*>`, 'gi');
-    const closeTagRegex = new RegExp(`</${tag}>`, 'gi');
-    const selfCloseRegex = new RegExp(`<${tag}[^>]*/>`, 'gi');
-    sanitized = sanitized.replace(openTagRegex, '');
-    sanitized = sanitized.replace(closeTagRegex, '');
-    sanitized = sanitized.replace(selfCloseRegex, '');
+  DANGEROUS_TAG_PATTERNS.forEach((pattern) => {
+    sanitized = sanitized.replace(pattern.open, '');
+    sanitized = sanitized.replace(pattern.close, '');
+    sanitized = sanitized.replace(pattern.selfClose, '');
   });
 
   // Remove SVG with potential XSS vectors
@@ -343,21 +345,36 @@ export const validateApiRequest = (data, requiredFields = []) => {
 // Rate limiting helper
 export const createRateLimiter = (maxRequests = 10, windowMs = 60000) => {
   const requests = new Map();
+  let lastCleanup = 0;
   
   return (identifier) => {
     const now = Date.now();
     const windowStart = now - windowMs;
     
-    // Clean old requests
-    for (const [key, timestamps] of requests.entries()) {
-      requests.set(key, timestamps.filter(time => time > windowStart));
-      if (requests.get(key).length === 0) {
-        requests.delete(key);
+    // Periodically clean old request timestamps in bulk.
+    if (now - lastCleanup >= windowMs) {
+      for (const [key, timestamps] of requests.entries()) {
+        const validTimestamps = timestamps.filter((time) => time > windowStart);
+        if (validTimestamps.length > 0) {
+          requests.set(key, validTimestamps);
+        } else {
+          requests.delete(key);
+        }
       }
+      lastCleanup = now;
     }
     
     // Check current requests
-    const userRequests = requests.get(identifier) || [];
+    let userRequests = requests.get(identifier) || [];
+    if (userRequests.length > 0 && userRequests[0] <= windowStart) {
+      userRequests = userRequests.filter((time) => time > windowStart);
+      if (userRequests.length > 0) {
+        requests.set(identifier, userRequests);
+      } else {
+        requests.delete(identifier);
+      }
+    }
+
     if (userRequests.length >= maxRequests) {
       return {
         allowed: false,

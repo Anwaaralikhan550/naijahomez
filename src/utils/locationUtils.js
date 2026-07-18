@@ -1,13 +1,7 @@
 // utils/locationUtils.js
 
 // Cache for geocoding results to avoid redundant API calls
-const geocodeCache = {};
-
-// Nigeria region boundaries (approximate)
-const NIGERIA_BOUNDS = {
-  minLat: 4.0, maxLat: 14.0,
-  minLng: 2.0, maxLng: 15.0
-};
+const geocodeCache = new Map();
 
 // Common Nigeria localities with their coordinates
 // This acts as a fallback database for location matching
@@ -43,6 +37,13 @@ const NIGERIA_LOCALITIES = {
   "abeokuta": { latitude: 7.1500, longitude: 3.3500 }
 };
 
+const LOCALITY_ENTRIES = Object.entries(NIGERIA_LOCALITIES);
+const LOCALITY_INDEX = LOCALITY_ENTRIES.map(([locality, coords]) => ({
+  locality,
+  coords,
+  words: locality.split(/\s+/)
+}));
+
 // Enhanced geolocation function that uses a real database of locations
 // rather than generating mock coordinates
 export async function getLocationCoordinates(locationName) {
@@ -52,15 +53,15 @@ export async function getLocationCoordinates(locationName) {
   const normalizedLocation = locationName.toLowerCase().trim();
   
   // Return from cache if available
-  if (geocodeCache[normalizedLocation]) {
-    return geocodeCache[normalizedLocation];
+  if (geocodeCache.has(normalizedLocation)) {
+    return geocodeCache.get(normalizedLocation);
   }
   
   try {
     // First, try direct match with known localities
-    for (const [locality, coords] of Object.entries(NIGERIA_LOCALITIES)) {
+    for (const [locality, coords] of LOCALITY_ENTRIES) {
       if (normalizedLocation.includes(locality) || locality.includes(normalizedLocation)) {
-        geocodeCache[normalizedLocation] = coords;
+        geocodeCache.set(normalizedLocation, coords);
         return coords;
       }
     }
@@ -68,12 +69,10 @@ export async function getLocationCoordinates(locationName) {
     // If no direct match, try partial matching for the closest locality
     let bestMatch = null;
     let highestScore = 0;
+    const locationWords = normalizedLocation.split(/\s+/);
     
-    for (const [locality, coords] of Object.entries(NIGERIA_LOCALITIES)) {
+    for (const { coords, words: localityWords } of LOCALITY_INDEX) {
       // Simple scoring - count how many characters match between strings
-      const localityWords = locality.split(/\s+/);
-      const locationWords = normalizedLocation.split(/\s+/);
-      
       // Word-level matching is more accurate than character matching
       let score = 0;
       for (const locWord of locationWords) {
@@ -93,7 +92,7 @@ export async function getLocationCoordinates(locationName) {
     
     // Only use partial match if the score is meaningful (avoid false matches)
     if (highestScore > 3 && bestMatch) {
-      geocodeCache[normalizedLocation] = bestMatch;
+      geocodeCache.set(normalizedLocation, bestMatch);
       return bestMatch;
     }
     
@@ -103,7 +102,7 @@ export async function getLocationCoordinates(locationName) {
       latitude: 6.5244, // Central Nigeria
       longitude: 7.3986
     };
-    geocodeCache[normalizedLocation] = fallbackCoords;
+    geocodeCache.set(normalizedLocation, fallbackCoords);
     return fallbackCoords;
     
   } catch (error) {
@@ -236,7 +235,7 @@ async function getUserLocalityFromCoordinates(coords) {
   let closestLocality = null;
   let shortestDistance = Infinity;
   
-  for (const [locality, localityCoords] of Object.entries(NIGERIA_LOCALITIES)) {
+  for (const [locality, localityCoords] of LOCALITY_ENTRIES) {
     const distance = calculateDistance(
       coords.latitude,
       coords.longitude,

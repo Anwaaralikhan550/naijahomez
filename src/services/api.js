@@ -1,10 +1,65 @@
 // Client-side API service to replace direct Firestore calls
 import { auth } from '@/lib/firebase-client';
 import logger from '@/lib/logger';
+import { compressImageForUpload } from '@/lib/imageProcessor';
+
+function normalizeImageList(value) {
+  const rawList = Array.isArray(value)
+    ? value
+    : value !== undefined && value !== null
+      ? [value]
+      : [];
+
+  return [...new Set(
+    rawList
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+  )];
+}
+
+function normalizeListingPayload(data = {}) {
+  const payload = { ...data };
+  const normalizedImages = normalizeImageList(
+    Array.isArray(payload.imageUrls) && payload.imageUrls.length > 0
+      ? payload.imageUrls
+      : payload.images
+  );
+
+  if (normalizedImages.length > 0 || Array.isArray(payload.imageUrls) || Array.isArray(payload.images)) {
+    payload.imageUrls = normalizedImages;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'images')) {
+    delete payload.images;
+  }
+
+  return payload;
+}
 
 class ApiService {
   constructor() {
     this.baseUrl = '/api';
+  }
+
+  normalizeApiErrorPayload(payload, fallbackMessage = 'Request failed') {
+    if (!payload || typeof payload !== 'object') {
+      return {
+        message: fallbackMessage,
+        code: null
+      };
+    }
+
+    const rawError = payload.error;
+    const message =
+      (typeof rawError === 'string' && rawError.trim()) ||
+      (rawError && typeof rawError === 'object' && (rawError.message || rawError.error)) ||
+      payload.message ||
+      fallbackMessage;
+
+    return {
+      message,
+      code: payload.code || rawError?.code || null
+    };
   }
 
   /**
@@ -56,12 +111,36 @@ class ApiService {
         headers
       });
 
+      const contentType = response.headers.get('content-type') || '';
+      const isJsonResponse = contentType.includes('application/json');
+      const responseBody = isJsonResponse ? await response.json() : await response.text();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Request failed');
+        const parsedError =
+          isJsonResponse && responseBody && typeof responseBody === 'object'
+            ? responseBody
+            : null;
+
+        const normalizedError = this.normalizeApiErrorPayload(
+          parsedError,
+          typeof responseBody === 'string' && responseBody
+            ? responseBody
+            : `Request failed with status ${response.status}`
+        );
+        const errorMessage = normalizedError.message;
+
+        const apiError = new Error(errorMessage);
+        apiError.code = normalizedError.code;
+        apiError.status = response.status;
+        apiError.payload = parsedError;
+        throw apiError;
       }
 
-      return await response.json();
+      if (isJsonResponse) {
+        return responseBody;
+      }
+
+      return { success: true, data: responseBody };
     } catch (error) {
       logger.error('API request failed', error);
       throw error;
@@ -85,14 +164,14 @@ class ApiService {
   async createProperty(data) {
     return this.request(`${this.baseUrl}/properties`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
   async updateProperty(id, data) {
     return this.request(`${this.baseUrl}/properties/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
@@ -105,6 +184,10 @@ class ApiService {
   // Featured properties with caching
   async getFeaturedProperties(count = 4) {
     return this.request(`${this.baseUrl}/properties?limit=${count}&sortBy=createdAt&sortOrder=desc`);
+  }
+
+  async getPublicStats() {
+    return this.request(`${this.baseUrl}/public-stats`);
   }
 
   // Search properties
@@ -133,14 +216,14 @@ class ApiService {
   async createMarketplaceItem(data) {
     return this.request(`${this.baseUrl}/marketplace`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
   async updateMarketplaceItem(id, data) {
     return this.request(`${this.baseUrl}/marketplace/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
@@ -167,7 +250,7 @@ class ApiService {
   async createService(data) {
     return this.request(`${this.baseUrl}/tradespeople`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
@@ -206,14 +289,14 @@ class ApiService {
   async createHousemate(data) {
     return this.request(`${this.baseUrl}/housemates`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
   async updateHousemate(id, data) {
     return this.request(`${this.baseUrl}/housemates/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
@@ -255,7 +338,7 @@ class ApiService {
   async createNoticeboard(data) {
     return this.request(`${this.baseUrl}/noticeboard`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
@@ -282,14 +365,14 @@ class ApiService {
   async createNotice(data) {
     return this.request(`${this.baseUrl}/noticeboard`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
   async updateNotice(id, data) {
     return this.request(`${this.baseUrl}/noticeboard/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data)
+      body: JSON.stringify(normalizeListingPayload(data))
     });
   }
 
@@ -326,8 +409,16 @@ class ApiService {
 
   // Upload API
   async uploadImage(file, draftId = null) {
+    const optimized = await compressImageForUpload(file, {
+      thresholdBytes: 2 * 1024 * 1024,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      quality: 0.8,
+      outputType: 'image/webp'
+    });
+
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', optimized.file);
     if (draftId) {
       formData.append('draftId', draftId);
     }
@@ -347,8 +438,13 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Upload failed');
+      const error = await response.json().catch(() => ({}));
+      const normalizedError = apiService.normalizeApiErrorPayload(error, 'Upload failed');
+      const apiError = new Error(normalizedError.message);
+      apiError.code = normalizedError.code;
+      apiError.status = response.status;
+      apiError.payload = error;
+      throw apiError;
     }
 
     return await response.json();

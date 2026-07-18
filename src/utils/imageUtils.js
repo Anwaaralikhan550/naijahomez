@@ -35,6 +35,60 @@ export function processPropertyImages(imageUrls, options = {}) {
 
   return processedUrls;
 }
+
+const WATERMARKED_SOURCE_HOSTS = [
+  'nigeriapropertycentre.com',
+  'jiji.ng',
+  'jijistatic.com',
+  'locanto.com.ng',
+  'locanto.ng'
+];
+
+const WATERMARK_URL_HINTS = [
+  'watermark',
+  'wm_',
+  'logo-overlay',
+  'copyright',
+  'nijahomzs-logo',
+  'naijahomzs-logo',
+  'logo.png'
+];
+
+export function isLikelyWatermarkedImageUrl(value) {
+  try {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return true;
+    }
+
+    const lowerRaw = raw.toLowerCase();
+    if (WATERMARK_URL_HINTS.some((hint) => lowerRaw.includes(hint))) {
+      return true;
+    }
+
+    if (raw.startsWith('/')) {
+      return false;
+    }
+
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    return WATERMARKED_SOURCE_HOSTS.some(
+      (blockedHost) => host === blockedHost || host.endsWith(`.${blockedHost}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function getCleanListingImageUrl(imageUrls, fallback = '/api/placeholder/400/300') {
+  const list = Array.isArray(imageUrls)
+    ? imageUrls
+    : typeof imageUrls === 'string'
+      ? imageUrls.split(',').map((url) => url.trim()).filter(Boolean)
+      : [];
+
+  return list.find((url) => !isLikelyWatermarkedImageUrl(url)) || fallback;
+}
   
   /**
    * Process logo image with maintained aspect ratio

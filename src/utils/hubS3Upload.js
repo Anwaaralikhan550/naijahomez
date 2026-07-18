@@ -1,9 +1,26 @@
 // utils/hubS3Upload.js
+import { auth } from '@/lib/firebase-client';
+import { compressImageForUpload } from '@/lib/imageProcessor';
+
 export const uploadHubImage = async (file, context = 'general', userId = null) => {
   try {
     console.log("Starting Hub image upload to S3:", file.name);
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('Authentication required for upload');
+    }
+    const token = await currentUser.getIdToken();
+
+    const optimized = await compressImageForUpload(file, {
+      thresholdBytes: 2 * 1024 * 1024,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      quality: 0.8,
+      outputType: 'image/webp'
+    });
+
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', optimized.file);
     formData.append('context', `hub-${context}`); // Prefix with 'hub-' for organization
     
     // Add user ID for authentication
@@ -13,6 +30,9 @@ export const uploadHubImage = async (file, context = 'general', userId = null) =
 
     const response = await fetch('/api/upload', {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
       body: formData
     });
 
