@@ -1,8 +1,7 @@
-﻿import { getAdminFirestore } from '@/lib/firebase-admin';
+import { getAdminFirestore } from '@/lib/firebase-admin';
 import { sendMail } from '@/lib/email/mailer';
+import supportTicketRepository from '@/lib/db/support-ticket-repository.cjs';
 
-const TICKETS_COLLECTION = 'supportTickets';
-const MESSAGES_COLLECTION = 'supportTicketMessages';
 const EMAIL_LOGS_COLLECTION = 'supportEmailLogs';
 
 const ALLOWED_TYPES = new Set(['general', 'support', 'technical', 'complaint', 'fraud', 'report', 'partnership', 'billing', 'whatsapp']);
@@ -52,68 +51,10 @@ function priorityForType(type) {
   return 'normal';
 }
 
-function toDate(value) {
-  if (!value) return null;
-  if (typeof value?.toDate === 'function') return value.toDate();
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function toIso(value) {
-  const date = toDate(value);
-  return date ? date.toISOString() : null;
-}
-
 function createTicketNumber(date = new Date()) {
   const stamp = date.toISOString().slice(0, 10).replace(/-/g, '');
   const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `NJH-${stamp}-${suffix}`;
-}
-
-function mapTicket(doc) {
-  const data = doc.data?.() || doc.data || {};
-  return {
-    id: doc.id,
-    ticketNumber: data.ticketNumber || null,
-    source: data.source || 'web',
-    channel: data.channel || 'web',
-    type: data.type || 'general',
-    priority: data.priority || 'normal',
-    status: data.status || 'open',
-    name: data.name || null,
-    email: data.email || null,
-    phone: data.phone || null,
-    subject: data.subject || 'Support request',
-    message: data.message || '',
-    lastMessage: data.lastMessage || data.message || '',
-    messageCount: data.messageCount || 0,
-    assignedTo: data.assignedTo || null,
-    escalatedTo: data.escalatedTo || null,
-    escalationReason: data.escalationReason || null,
-    resolutionNote: data.resolutionNote || null,
-    metadata: data.metadata || {},
-    createdAt: toIso(data.createdAt),
-    updatedAt: toIso(data.updatedAt),
-    lastMessageAt: toIso(data.lastMessageAt),
-    escalatedAt: toIso(data.escalatedAt),
-    resolvedAt: toIso(data.resolvedAt)
-  };
-}
-
-function mapMessage(doc) {
-  const data = doc.data?.() || doc.data || {};
-  return {
-    id: doc.id,
-    ticketId: data.ticketId || null,
-    direction: data.direction || 'inbound',
-    channel: data.channel || 'web',
-    body: data.body || '',
-    fromName: data.fromName || null,
-    fromEmail: data.fromEmail || null,
-    fromPhone: data.fromPhone || null,
-    createdBy: data.createdBy || null,
-    createdAt: toIso(data.createdAt)
-  };
 }
 
 async function logSupportEmail({ ticketId, to, subject, status, error }) {
@@ -195,8 +136,7 @@ export async function createSupportTicket(input = {}) {
     throw Object.assign(new Error('Please provide a valid email address.'), { status: 400, code: 'INVALID_EMAIL' });
   }
 
-  const db = getAdminFirestore();
-  const ticketData = {
+  const ticket = await supportTicketRepository.createSupportTicket({
     ticketNumber: createTicketNumber(now),
     source,
     channel,
@@ -215,59 +155,37 @@ export async function createSupportTicket(input = {}) {
     escalationReason: null,
     resolutionNote: null,
     metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : {},
-    createdAt: now,
-    updatedAt: now,
-    lastMessageAt: now
-  };
-
-  const ticketRef = await db.collection(TICKETS_COLLECTION).add(ticketData);
-  await ticketRef.collection(MESSAGES_COLLECTION).add({
-    ticketId: ticketRef.id,
-    direction: 'inbound',
-    channel,
-    body: message,
-    fromName: ticketData.name,
-    fromEmail: email || null,
-    fromPhone: phone || null,
-    createdAt: now
+    firstMessage: {
+      ticketId: null,
+      direction: 'inbound',
+      channel,
+      body: message,
+      fromName: name || 'Nijahomzs user',
+      fromEmail: email || null,
+      fromPhone: phone || null,
+      createdAt: now.toISOString()
+    }
   });
 
-  const ticket = { id: ticketRef.id, ...ticketData };
   const emailNotification = await notifySupportTeam(ticket);
-  return { ...mapTicket({ id: ticketRef.id, data: () => ticketData }), emailNotification };
+  return { ...ticket, emailNotification };
 }
 
 export async function listSupportTickets({ status, limit = 100 } = {}) {
-  const db = getAdminFirestore();
-  const snapshot = await db.collection(TICKETS_COLLECTION).limit(Math.min(Number(limit) || 100, 250)).get();
-  let tickets = snapshot.docs.map(mapTicket);
-  if (status && status !== 'all') {
-    tickets = tickets.filter((ticket) => ticket.status === status);
-  }
-  tickets.sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
-  return tickets;
+  return supportTicketRepository.listSupportTickets({ status, limit });
 }
 
 export async function getSupportTicket(ticketId) {
-  const db = getAdminFirestore();
-  const ticketRef = db.collection(TICKETS_COLLECTION).doc(ticketId);
-  const ticketDoc = await ticketRef.get();
-  if (!ticketDoc.exists) return null;
-  const messagesSnapshot = await ticketRef.collection(MESSAGES_COLLECTION).limit(100).get();
-  const messages = messagesSnapshot.docs.map(mapMessage).sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
-  return { ...mapTicket(ticketDoc), messages };
+  return supportTicketRepository.getSupportTicket(ticketId);
 }
 
 export async function updateSupportTicket({ ticketId, action, status, priority, note, assignee, escalationReason, adminId }) {
-  const db = getAdminFirestore();
-  const ticketRef = db.collection(TICKETS_COLLECTION).doc(ticketId);
-  const ticketDoc = await ticketRef.get();
-  if (!ticketDoc.exists) {
+  const existing = await supportTicketRepository.getSupportTicket(ticketId);
+  if (!existing) {
     throw Object.assign(new Error('Support ticket not found.'), { status: 404, code: 'TICKET_NOT_FOUND' });
   }
 
-  const now = new Date();
-  const updates = { updatedAt: now };
+  const updates = {};
   const cleanAction = cleanText(action, 40).toLowerCase();
 
   if (priority) {
@@ -300,7 +218,7 @@ export async function updateSupportTicket({ ticketId, action, status, priority, 
     updates.priority = priority || 'urgent';
     updates.escalationReason = reason;
     updates.escalatedTo = cleanText(assignee, 120) || 'dev_team';
-    updates.escalatedAt = now;
+    updates.escalatedAt = new Date().toISOString();
   }
 
   if (cleanAction === 'resolve') {
@@ -310,7 +228,7 @@ export async function updateSupportTicket({ ticketId, action, status, priority, 
     }
     updates.status = 'resolved';
     updates.resolutionNote = resolution;
-    updates.resolvedAt = now;
+    updates.resolvedAt = new Date().toISOString();
     updates.resolvedBy = adminId || null;
   }
 
@@ -318,8 +236,8 @@ export async function updateSupportTicket({ ticketId, action, status, priority, 
     updates.status = 'closed';
   }
 
-  await ticketRef.set(updates, { merge: true });
-  return getSupportTicket(ticketId);
+  await supportTicketRepository.updateSupportTicket(ticketId, updates);
+  return supportTicketRepository.getSupportTicket(ticketId);
 }
 
 export async function addSupportTicketMessage({ ticketId, direction = 'outbound', channel = 'web', body, fromName, fromEmail, fromPhone, createdBy }) {
@@ -328,35 +246,32 @@ export async function addSupportTicketMessage({ ticketId, direction = 'outbound'
     throw Object.assign(new Error('Reply message is required.'), { status: 400, code: 'MESSAGE_REQUIRED' });
   }
 
-  const db = getAdminFirestore();
-  const ticketRef = db.collection(TICKETS_COLLECTION).doc(ticketId);
-  const ticketDoc = await ticketRef.get();
-  if (!ticketDoc.exists) {
+  const existing = await supportTicketRepository.getSupportTicket(ticketId);
+  if (!existing) {
     throw Object.assign(new Error('Support ticket not found.'), { status: 404, code: 'TICKET_NOT_FOUND' });
   }
 
   const now = new Date();
-  await ticketRef.collection(MESSAGES_COLLECTION).add({
+  await supportTicketRepository.appendSupportTicketMessage(
     ticketId,
-    direction,
-    channel,
-    body: messageBody,
-    fromName: cleanText(fromName, 120) || null,
-    fromEmail: normalizeEmail(fromEmail) || null,
-    fromPhone: normalizePhone(fromPhone) || null,
-    createdBy: createdBy || null,
-    createdAt: now
-  });
+    {
+      ticketId,
+      direction,
+      channel,
+      body: messageBody,
+      fromName: cleanText(fromName, 120) || null,
+      fromEmail: normalizeEmail(fromEmail) || null,
+      fromPhone: normalizePhone(fromPhone) || null,
+      createdBy: createdBy || null,
+      createdAt: now.toISOString()
+    },
+    {
+      messageCount: (existing.messageCount || 0) + 1,
+      status: direction === 'outbound' ? 'waiting_user' : 'open'
+    }
+  );
 
-  await ticketRef.set({
-    lastMessage: messageBody,
-    messageCount: (ticketDoc.data()?.messageCount || 0) + 1,
-    lastMessageAt: now,
-    updatedAt: now,
-    status: direction === 'outbound' ? 'waiting_user' : 'open'
-  }, { merge: true });
-
-  return getSupportTicket(ticketId);
+  return supportTicketRepository.getSupportTicket(ticketId);
 }
 
 export async function sendSupportReply({ ticketId, channel, message, adminId }) {
@@ -415,18 +330,7 @@ export async function createWhatsAppSupportTicket({ phone, text, metadata }) {
     return { ignored: true, reason: 'missing_phone_or_text' };
   }
 
-  const db = getAdminFirestore();
-  const recentSnapshot = await db
-    .collection(TICKETS_COLLECTION)
-    .where('phone', '==', normalizedPhone)
-    .limit(25)
-    .get();
-
-  const activeTicket = recentSnapshot.docs
-    .map(mapTicket)
-    .filter((ticket) => ticket.source === 'whatsapp')
-    .filter((ticket) => ['open', 'in_progress', 'waiting_user', 'escalated'].includes(ticket.status))
-    .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0))[0];
+  const activeTicket = await supportTicketRepository.findActiveTicketByPhone(normalizedPhone, { source: 'whatsapp' });
 
   if (activeTicket) {
     return addSupportTicketMessage({
@@ -450,9 +354,3 @@ export async function createWhatsAppSupportTicket({ phone, text, metadata }) {
     metadata: metadata || {}
   });
 }
-
-export const supportCollections = {
-  TICKETS_COLLECTION,
-  MESSAGES_COLLECTION,
-  EMAIL_LOGS_COLLECTION
-};
