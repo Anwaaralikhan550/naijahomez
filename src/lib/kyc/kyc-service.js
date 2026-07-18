@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import kycSubmissionRepository from '@/lib/db/kyc-submission-repository.cjs';
 
 export const KYC_STATUSES = ['unverified', 'pending', 'verified', 'rejected'];
 export const OTP_TTL_MS = 10 * 60 * 1000;
@@ -113,55 +114,23 @@ export function sanitizeDocumentMetadata(documentValue, docType) {
   };
 }
 
-export function mapKycSubmission(doc) {
-  if (!doc?.exists) return null;
-  const data = doc.data() || {};
-  return {
-    id: doc.id,
-    userId: data.userId,
-    status: data.status || 'unverified',
-    documents: data.documents || {},
-    phoneVerification: data.phoneVerification || null,
-    rejectionReason: data.rejectionReason || null,
-    submittedAt: toIso(data.submittedAt),
-    reviewedAt: toIso(data.reviewedAt),
-    reviewedBy: data.reviewedBy || null,
-    createdAt: toIso(data.createdAt),
-    updatedAt: toIso(data.updatedAt)
-  };
-}
-
-export async function getLatestKycSubmission(db, userId) {
-  const snapshot = await db.collection('kycSubmissions')
-    .where('userId', '==', userId)
-    .get();
-
-  if (snapshot.empty) return null;
-  const latestDoc = snapshot.docs
-    .map((doc) => ({ doc, data: doc.data() || {} }))
-    .sort((a, b) => {
-      const aTime = a.data.updatedAt?.toMillis?.() || Date.parse(a.data.updatedAt || '') || 0;
-      const bTime = b.data.updatedAt?.toMillis?.() || Date.parse(b.data.updatedAt || '') || 0;
-      return bTime - aTime;
-    })[0];
-
-  return { ref: latestDoc.doc.ref, doc: latestDoc.doc, data: latestDoc.data };
+export async function getLatestKycSubmission(userId) {
+  return kycSubmissionRepository.getLatestSubmission(userId);
 }
 
 export function mapKycStatus({ userDoc, latestSubmission }) {
   const userData = userDoc?.exists ? userDoc.data() || {} : {};
-  const submission = latestSubmission ? mapKycSubmission(latestSubmission.doc) : null;
-  const status = userData.kycStatus || submission?.status || 'unverified';
+  const status = userData.kycStatus || latestSubmission?.status || 'unverified';
 
   return {
     status,
     kycStatus: status,
     phoneNumber: userData.phoneNumber || '',
     phoneVerification: userData.phoneVerification || null,
-    idVerification: userData.idVerification || submission?.documents?.id || null,
-    cacVerification: userData.cacVerification || submission?.documents?.cac || null,
-    rejectionReason: userData.verificationRejectedReason || submission?.rejectionReason || null,
-    latestSubmission: submission,
+    idVerification: userData.idVerification || latestSubmission?.documents?.id || null,
+    cacVerification: userData.cacVerification || latestSubmission?.documents?.cac || null,
+    rejectionReason: userData.verificationRejectedReason || latestSubmission?.rejectionReason || null,
+    latestSubmission,
     verifiedAt: toIso(userData.verifiedAt),
     updatedAt: toIso(userData.updatedAt)
   };
@@ -171,7 +140,7 @@ export async function getKycStatusForUser(userId) {
   const db = getAdminFirestore();
   const [userDoc, latestSubmission] = await Promise.all([
     db.collection('users').doc(userId).get(),
-    getLatestKycSubmission(db, userId)
+    kycSubmissionRepository.getLatestSubmission(userId)
   ]);
 
   return mapKycStatus({ userDoc, latestSubmission });

@@ -2,11 +2,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-middleware';
 import { getAdminFirestore } from '@/lib/firebase-admin';
-import {
-  getLatestKycSubmission,
-  nowDate,
-  sanitizeDocumentMetadata
-} from '@/lib/kyc/kyc-service';
+import { sanitizeDocumentMetadata } from '@/lib/kyc/kyc-service';
+import kycSubmissionRepository from '@/lib/db/kyc-submission-repository.cjs';
 
 function buildDocumentsFromBody(body = {}) {
   const documents = {};
@@ -33,57 +30,34 @@ export async function POST(request) {
       );
     }
 
+    // Submission (Postgres) and the user's cached kycStatus (Firestore-shim
+    // users doc) are written separately now -- submission is the source of
+    // truth and goes first; the user doc is a denormalized cache updated
+    // right after, safe to retry if it fails.
+    const submission = await kycSubmissionRepository.upsertPendingSubmission({
+      userId: authResult.userId,
+      userEmail: authResult.user?.email || null,
+      documents
+    });
+
     const db = getAdminFirestore();
     const userRef = db.collection('users').doc(authResult.userId);
-    const latest = await getLatestKycSubmission(db, authResult.userId);
-    const now = nowDate();
-
-    const previousDocuments =
-      latest && ['pending', 'rejected', 'unverified'].includes(String(latest.data.status || '').toLowerCase())
-        ? latest.data.documents || {}
-        : {};
-
-    const submissionRef =
-      latest && ['pending', 'rejected', 'unverified'].includes(String(latest.data.status || '').toLowerCase())
-        ? latest.ref
-        : db.collection('kycSubmissions').doc();
-
-    const mergedDocuments = {
-      ...previousDocuments,
-      ...documents
-    };
-
-    await db.runTransaction(async (transaction) => {
-      transaction.set(submissionRef, {
-        userId: authResult.userId,
-        userEmail: authResult.user?.email || null,
-        status: 'pending',
-        documents: mergedDocuments,
-        submittedAt: now,
-        rejectionReason: null,
-        reviewedAt: null,
-        reviewedBy: null,
-        createdAt: latest?.data?.createdAt || now,
-        updatedAt: now
-      }, { merge: true });
-
-      transaction.set(userRef, {
-        uid: authResult.userId,
-        email: authResult.user?.email || null,
-        kycStatus: 'pending',
-        idVerification: mergedDocuments.id || null,
-        cacVerification: mergedDocuments.cac || null,
-        verificationRejectedReason: null,
-        latestKycSubmissionId: submissionRef.id,
-        updatedAt: now
-      }, { merge: true });
-    });
+    await userRef.set({
+      uid: authResult.userId,
+      email: authResult.user?.email || null,
+      kycStatus: 'pending',
+      idVerification: submission.documents.id || null,
+      cacVerification: submission.documents.cac || null,
+      verificationRejectedReason: null,
+      latestKycSubmissionId: submission.id,
+      updatedAt: new Date()
+    }, { merge: true });
 
     return NextResponse.json({
       success: true,
       kycStatus: 'pending',
-      submissionId: submissionRef.id,
-      documents: mergedDocuments
+      submissionId: submission.id,
+      documents: submission.documents
     });
   } catch (error) {
     return NextResponse.json(

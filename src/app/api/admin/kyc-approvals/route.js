@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { isAdmin } from '@/lib/auth-middleware';
-import { backfillListingsKycStatus, getLatestKycSubmission } from '@/lib/kyc/kyc-service';
+import { backfillListingsKycStatus } from '@/lib/kyc/kyc-service';
+import kycSubmissionRepository from '@/lib/db/kyc-submission-repository.cjs';
 
 const ALLOWED_ACTIONS = ['approve', 'reject'];
 
@@ -17,26 +18,25 @@ const toIsoString = (value) => {
   }
 };
 
-const mapUserForKycApproval = (doc, submissionDoc = null) => {
+const mapUserForKycApproval = (doc, submission = null) => {
   const data = doc.data() || {};
-  const submissionData = submissionDoc?.data?.() || submissionDoc?.data || {};
-  const documents = submissionData.documents || {};
+  const documents = submission?.documents || {};
 
   return {
     uid: data.uid || doc.id,
     id: doc.id,
-    submissionId: submissionDoc?.id || data.latestKycSubmissionId || null,
+    submissionId: submission?.id || data.latestKycSubmissionId || null,
     displayName: data.displayName || data.name || null,
     email: data.email || null,
     phoneNumber: data.phoneNumber || data.phone || null,
-    phoneVerification: data.phoneVerification || submissionData.phoneVerification || null,
+    phoneVerification: data.phoneVerification || submission?.phoneVerification || null,
     kycStatus: data.kycStatus || null,
     idVerification: data.idVerification || documents.id || null,
     cacVerification: data.cacVerification || documents.cac || null,
-    rejectionReason: data.verificationRejectedReason || submissionData.rejectionReason || null,
-    submittedAt: toIsoString(submissionData.submittedAt),
-    reviewedAt: toIsoString(submissionData.reviewedAt),
-    reviewedBy: submissionData.reviewedBy || null,
+    rejectionReason: data.verificationRejectedReason || submission?.rejectionReason || null,
+    submittedAt: toIsoString(submission?.updatedAt || submission?.createdAt),
+    reviewedAt: toIsoString(submission?.reviewedAt),
+    reviewedBy: submission?.reviewedBy || null,
     updatedAt: toIsoString(data.updatedAt),
     createdAt: toIsoString(data.createdAt)
   };
@@ -50,16 +50,12 @@ export async function GET(request) {
     }
 
     const db = getAdminFirestore();
-    const submissionSnapshot = await db
-      .collection('kycSubmissions')
-      .where('status', '==', 'pending')
-      .get();
+    const submissions = await kycSubmissionRepository.listPendingSubmissions();
 
-    const users = await Promise.all(submissionSnapshot.docs.map(async (submissionDoc) => {
-      const data = submissionDoc.data() || {};
-      const userDoc = await db.collection('users').doc(data.userId).get();
+    const users = await Promise.all(submissions.map(async (submission) => {
+      const userDoc = await db.collection('users').doc(submission.userId).get();
       if (!userDoc.exists) return null;
-      return mapUserForKycApproval(userDoc, submissionDoc);
+      return mapUserForKycApproval(userDoc, submission);
     }));
 
     const filteredUsers = users
@@ -140,28 +136,27 @@ export async function POST(request) {
     const nextStatus = action === 'approve' ? 'verified' : 'rejected';
     const now = new Date();
     const latestSubmission = submissionId
-      ? { ref: db.collection('kycSubmissions').doc(submissionId) }
-      : await getLatestKycSubmission(db, userId);
+      ? await kycSubmissionRepository.getSubmissionById(submissionId)
+      : await kycSubmissionRepository.getLatestSubmission(userId);
 
-    await db.runTransaction(async (transaction) => {
-      transaction.update(userRef, {
-        kycStatus: nextStatus,
-        verificationStatus: nextStatus,
-        verifiedAt: action === 'approve' ? now : null,
-        verifiedBy: action === 'approve' ? adminResult.userId : null,
-        verificationRejectedReason: action === 'reject' ? rejectionReason : null,
-        updatedAt: now
+    // Submission (Postgres) and user doc (Firestore-shim) are separate
+    // backends now -- submission resolves first since it's the audit
+    // record, then the user's cached status, which is safe to retry.
+    if (latestSubmission?.id) {
+      await kycSubmissionRepository.resolveSubmission(latestSubmission.id, {
+        status: nextStatus,
+        reviewedBy: adminResult.userId,
+        rejectionReason: action === 'reject' ? rejectionReason : null
       });
+    }
 
-      if (latestSubmission?.ref) {
-        transaction.set(latestSubmission.ref, {
-          status: nextStatus,
-          reviewedAt: now,
-          reviewedBy: adminResult.userId,
-          rejectionReason: action === 'reject' ? rejectionReason : null,
-          updatedAt: now
-        }, { merge: true });
-      }
+    await userRef.update({
+      kycStatus: nextStatus,
+      verificationStatus: nextStatus,
+      verifiedAt: action === 'approve' ? now : null,
+      verifiedBy: action === 'approve' ? adminResult.userId : null,
+      verificationRejectedReason: action === 'reject' ? rejectionReason : null,
+      updatedAt: now
     });
 
     const syncedListings = await backfillListingsKycStatus({
