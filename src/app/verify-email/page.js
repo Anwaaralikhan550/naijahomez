@@ -12,9 +12,13 @@ function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const [isResending, setIsResending] = useState(false);
   const [resendMessage, setResendMessage] = useState('');
+  const [resendMessageType, setResendMessageType] = useState('success');
   const [isChecking, setIsChecking] = useState(false);
 
-  const continueUrl = searchParams.get('continueUrl') || '/dashboard';
+  const rawContinueUrl = searchParams.get('continueUrl') || '/dashboard';
+  const continueUrl = (typeof rawContinueUrl === 'string' && rawContinueUrl.startsWith('/'))
+    ? rawContinueUrl
+    : '/dashboard';
 
   useEffect(() => {
     // Auto-check verification status when component mounts
@@ -39,19 +43,54 @@ function VerifyEmailContent() {
   };
 
   const handleResendEmail = async () => {
+    if (!user) {
+      setResendMessageType('error');
+      setResendMessage('Error: You must be logged in to resend verification email.');
+      return;
+    }
+
+    if (user.emailVerified) {
+      setResendMessageType('success');
+      setResendMessage('Your email is already verified.');
+      return;
+    }
+
     setIsResending(true);
     setResendMessage('');
+    setResendMessageType('success');
 
     const result = await sendVerificationEmail();
     
     if (result.error) {
-      setResendMessage(`Error: ${result.error}`);
+      setResendMessageType('error');
+      if (result.code === 'RATE_LIMITED' && result.retryAfterSeconds) {
+        setResendMessage(`Error: ${result.error}. Try again in ${result.retryAfterSeconds}s.`);
+      } else {
+        setResendMessage(`Error: ${result.error}`);
+      }
+    } else if (result.warning) {
+      setResendMessageType('warning');
+      setResendMessage(result.warning);
+      await checkVerificationStatus();
+    } else if (result.message) {
+      setResendMessageType('success');
+      setResendMessage(result.message);
+      await checkVerificationStatus();
     } else {
+      setResendMessageType('success');
       setResendMessage('Verification email sent! Please check your inbox.');
+      await checkVerificationStatus();
     }
-    
+
     setIsResending(false);
   };
+
+  const resendMessageClasses =
+    resendMessageType === 'error'
+      ? 'bg-red-50 border-red-200 text-red-700'
+      : resendMessageType === 'warning'
+        ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
+        : 'bg-green-50 border-green-200 text-green-700';
 
   if (!user) {
     return (
@@ -94,7 +133,7 @@ function VerifyEmailContent() {
               href={continueUrl}
               className="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
             >
-              Continue to Dashboard
+              Continue to My Account
             </Link>
           </div>
         </div>
@@ -140,11 +179,7 @@ function VerifyEmailContent() {
             )}
 
             {resendMessage && (
-              <div className={`border rounded-lg p-4 ${
-                resendMessage.includes('Error') 
-                  ? 'bg-red-50 border-red-200 text-red-700' 
-                  : 'bg-green-50 border-green-200 text-green-700'
-              }`}>
+              <div className={`border rounded-lg p-4 ${resendMessageClasses}`}>
                 {resendMessage}
               </div>
             )}

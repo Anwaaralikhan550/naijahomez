@@ -24,7 +24,7 @@ export function useEmailVerification(options = {}) {
     }
 
     // Check if email verification is required and user is not verified
-    if (required && user && !user.emailVerified && !allowSkip) {
+    if (required && user && user.requiresEmailVerification && !user.emailVerified && !allowSkip) {
       // Redirect to verification page
       const currentUrl = window.location.pathname + window.location.search;
       const redirectUrl = `${redirectTo}?continueUrl=${encodeURIComponent(currentUrl)}`;
@@ -39,7 +39,7 @@ export function useEmailVerification(options = {}) {
     user,
     loading,
     isEmailVerified: user?.emailVerified || false,
-    needsVerification: required && user && !user.emailVerified,
+    needsVerification: required && user && user.requiresEmailVerification && !user.emailVerified,
     verificationChecked
   };
 }
