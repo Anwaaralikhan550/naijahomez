@@ -1,8 +1,10 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getAuth } from 'firebase-admin/auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+import { normalizeImageFields } from '@/lib/hubFirestore';
 
 // GET - Fetch a single noticeboard item
 export async function GET(request, { params }) {
@@ -33,13 +35,13 @@ export async function GET(request, { params }) {
     
     return NextResponse.json({
       success: true,
-      data: {
+      data: normalizeImageFields({
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString(),
         expiresAt: data.expiresAt?.toDate().toISOString()
-      }
+      })
     });
     
   } catch (error) {
@@ -88,7 +90,7 @@ export async function PUT(request, { params }) {
     
     // Prepare update data
     const updates = {
-      ...updateData,
+      ...normalizeImageFields(updateData),
       updatedAt: new Date()
     };
     

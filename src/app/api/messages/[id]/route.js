@@ -1,8 +1,7 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
-import { db } from '@/lib/firestore';
-
-import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+import { verifyAuth } from '@/lib/auth-middleware';
 
 export async function DELETE(request, { params }) {
   try {
@@ -16,7 +15,7 @@ export async function DELETE(request, { params }) {
     }
 
     const userId = authResult.userId;
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json(
@@ -26,10 +25,10 @@ export async function DELETE(request, { params }) {
     }
 
     // Check if message exists
-    const messageRef = doc(db, 'messages', id);
-    const messageSnap = await getDoc(messageRef);
+    const messageRef = db.collection('messages').doc(id);
+    const messageSnap = await messageRef.get();
 
-    if (!messageSnap.exists()) {
+    if (!messageSnap.exists) {
       return NextResponse.json(
         { error: 'Message not found' },
         { status: 404 }
@@ -37,7 +36,7 @@ export async function DELETE(request, { params }) {
     }
 
     // Delete the message
-    await deleteDoc(messageRef);
+    await messageRef.delete();
 
     return NextResponse.json({
       success: true,

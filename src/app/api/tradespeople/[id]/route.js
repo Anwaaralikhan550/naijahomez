@@ -1,8 +1,19 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { getAuth } from 'firebase-admin/auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
-import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
+import { verifyAuth } from '@/lib/auth-middleware';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const message = payload?.error || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
+import { normalizeImageFields } from '@/lib/hubFirestore';
 
 // GET - Fetch a single service/tradesperson
 export async function GET(request, { params }) {
@@ -15,30 +26,24 @@ export async function GET(request, { params }) {
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Service not found' },
-        { status: 404 }
-      );
+      return errorResponse('Service not found', 'SERVICE_NOT_FOUND', 404);
     }
     
     const data = doc.data();
     
     return NextResponse.json({
       success: true,
-      data: {
+      data: normalizeImageFields({
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString()
-      }
+      })
     });
     
   } catch (error) {
     console.error('Error fetching service:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch service' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to fetch service', 'SERVICE_FETCH_FAILED', 500);
   }
 }
 
@@ -50,36 +55,30 @@ export async function PUT(request, { params }) {
         // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
 
-    const db = getFirestore();
+    const db = getAdminFirestore();
     const docRef = db.collection('services').doc(id);
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Service not found' },
-        { status: 404 }
-      );
+      return errorResponse('Service not found', 'SERVICE_NOT_FOUND', 404);
     }
     
     // Verify ownership
     const serviceData = doc.data();
     if (serviceData.userId !== userId) {
-      return NextResponse.json(
-        { error: 'Forbidden - You do not own this service' },
-        { status: 403 }
-      );
+      return errorResponse('Forbidden - You do not own this service', 'FORBIDDEN', 403);
     }
     
     const updateData = await request.json();
     
     // Prepare update data
     const updates = {
-      ...updateData,
+      ...normalizeImageFields(updateData),
       updatedAt: new Date()
     };
     
@@ -107,10 +106,7 @@ export async function PUT(request, { params }) {
     
   } catch (error) {
     console.error('Error updating service:', error);
-    return NextResponse.json(
-      { error: 'Failed to update service' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to update service', 'SERVICE_UPDATE_FAILED', 500);
   }
 }
 
@@ -122,29 +118,23 @@ export async function DELETE(request, { params }) {
         // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
 
-    const db = getFirestore();
+    const db = getAdminFirestore();
     const docRef = db.collection('services').doc(id);
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Service not found' },
-        { status: 404 }
-      );
+      return errorResponse('Service not found', 'SERVICE_NOT_FOUND', 404);
     }
     
     // Verify ownership
     const serviceData = doc.data();
     if (serviceData.userId !== userId) {
-      return NextResponse.json(
-        { error: 'Forbidden - You do not own this service' },
-        { status: 403 }
-      );
+      return errorResponse('Forbidden - You do not own this service', 'FORBIDDEN', 403);
     }
     
     // Soft delete - update status instead of deleting
@@ -161,9 +151,6 @@ export async function DELETE(request, { params }) {
     
   } catch (error) {
     console.error('Error deleting service:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete service' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to delete service', 'SERVICE_DELETE_FAILED', 500);
   }
 }

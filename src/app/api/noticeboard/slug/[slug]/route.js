@@ -1,5 +1,7 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import { normalizeImageFields } from '@/lib/hubFirestore';
 
 // GET - Fetch a noticeboard item by slug
 export async function GET(request, { params }) {
@@ -24,6 +26,30 @@ export async function GET(request, { params }) {
     
     const doc = snapshot.docs[0];
     const data = doc.data();
+    let listingUser = null;
+
+    if (data.userId) {
+      try {
+        const userDoc = await db.collection('users').doc(data.userId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data() || {};
+          listingUser = {
+            id: userDoc.id,
+            uid: userData.uid || userDoc.id,
+            displayName: userData.displayName || userData.name || null,
+            email: userData.email || null,
+            phoneNumber: userData.phoneNumber || userData.phone || null,
+            kycStatus: userData.kycStatus || null,
+            idVerification: userData.idVerification || null,
+            cacVerification: userData.cacVerification || null,
+            updatedAt: userData.updatedAt?.toDate?.()?.toISOString() || null,
+            createdAt: userData.createdAt?.toDate?.()?.toISOString() || null
+          };
+        }
+      } catch (userError) {
+        console.warn('Failed to load noticeboard listing user:', userError);
+      }
+    }
     
     // Check if notice has expired
     if (data.expiresAt && new Date(data.expiresAt.toDate()) < new Date()) {
@@ -65,14 +91,16 @@ export async function GET(request, { params }) {
     
     return NextResponse.json({
       success: true,
-      data: {
+      data: normalizeImageFields({
         id: doc.id,
         ...data,
+        user: listingUser,
+        kycStatus: data.kycStatus || listingUser?.kycStatus || null,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString(),
         expiresAt: data.expiresAt?.toDate().toISOString()
-      },
-      similar: similarNotices.slice(0, 3)
+      }),
+      similar: similarNotices.slice(0, 3).map((item) => normalizeImageFields(item))
     });
     
   } catch (error) {

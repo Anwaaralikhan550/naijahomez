@@ -1,8 +1,31 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import cache, { cacheKeys } from '@/lib/cache';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+import { normalizeImageFields } from '@/lib/hubFirestore';
+import { validateListingStringLengths, buildLengthExceededErrorMessage } from '@/lib/listingLengthValidation';
+import { getUserTrustFields } from '@/lib/kyc/kyc-service';
+import listingRepository from '@/lib/db/listing-repository.cjs';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+const { fetchListings, isAppDbEnabled, upsertPublicListings } = listingRepository;
+
+function isQuotaExceededError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === 8 || message.includes('resource_exhausted') || message.includes('quota exceeded');
+}
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const rawMessage = payload?.error;
+  const message = (typeof rawMessage === 'string' && rawMessage) || rawMessage?.message || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
 
 // GET - Fetch marketplace items with efficient server-side filtering
 export async function GET(request) {
@@ -17,14 +40,21 @@ export async function GET(request) {
     const maxPrice = searchParams.get('maxPrice');
     const condition = searchParams.get('condition');
     const category = searchParams.get('category');
+    const paymentType = searchParams.get('paymentType');
+    const collectionType = searchParams.get('collectionType');
     const location = searchParams.get('location');
+    const communityId = searchParams.get('communityId');
+    const tags = (searchParams.get('tags') || searchParams.get('tag') || '')
+      .split(',')
+      .map((tag) => tag.trim().toLowerCase())
+      .filter(Boolean);
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     
     // Create cache key from parameters
     const cacheParams = {
       page, limit, search, minPrice, maxPrice, condition, category,
-      location, sortBy, sortOrder
+      paymentType, collectionType, location, sortBy, sortOrder, communityId, tags: tags.join(',')
     };
     
     const cacheKey = cacheKeys.marketplace(cacheParams);
@@ -34,15 +64,50 @@ export async function GET(request) {
     if (cachedResult) {
       return NextResponse.json(cachedResult);
     }
+
+    if (isAppDbEnabled()) {
+      try {
+        const postgresResult = await fetchListings({
+          collectionName: 'marketplace',
+          page,
+          limit,
+          search,
+          minPrice,
+          maxPrice,
+          location,
+          sortBy,
+          sortOrder,
+          filters: {
+            condition,
+            category,
+            paymentType,
+            collectionType,
+            communityId,
+            tags
+          }
+        });
+
+        if (postgresResult?.pagination?.total > 0 || process.env.POSTGRES_ALLOW_EMPTY_RESULTS === 'true') {
+          postgresResult.data = postgresResult.data.map((item) => normalizeImageFields(item));
+          cache.set(cacheKey, postgresResult, 300000);
+          return NextResponse.json(postgresResult);
+        }
+      } catch (postgresError) {
+        logger.warn('PostgreSQL marketplace query failed, falling back to Firestore', postgresError);
+      }
+    }
     
     // Initialize admin SDK
     const db = getAdminFirestore();
     
+    // Keep query window bounded for low-latency responses.
+    const fetchLimit = Math.min(Math.max(limit * 8, 60), 200);
+
     // Simple query - only filter by status and sort
     let query = db.collection('marketplace')
       .where('status', '==', 'active')
       .orderBy('createdAt', 'desc')
-      .limit(50); // Get more items to allow for filtering
+      .limit(fetchLimit);
     
     // Execute query
     const snapshot = await query.get();
@@ -51,60 +116,81 @@ export async function GET(request) {
     let items = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      items.push({
+      items.push(normalizeImageFields({
         id: doc.id,
         ...data,
-        createdAt: data.createdAt?.toDate().toISOString(),
-        updatedAt: data.updatedAt?.toDate().toISOString()
-      });
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || null,
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null
+      }));
     });
-    
-    // Check if there are more results
-    const hasMore = items.length > limit;
-    if (hasMore) {
-      items = items.slice(0, limit);
-    }
-    
-    // Apply client-side filters for text search, location, category, and condition
-    if (search || location || category || condition) {
-      items = items.filter(item => {
-        const matchesSearch = !search ||
-          item.title?.toLowerCase().includes(search.toLowerCase()) ||
-          item.description?.toLowerCase().includes(search.toLowerCase());
 
-        const matchesLocation = !location ||
-          item.location?.toLowerCase().includes(location.toLowerCase());
+    // Apply filters BEFORE pagination
+    const minPriceValue = minPrice ? parseFloat(minPrice) : null;
+    const maxPriceValue = maxPrice ? parseFloat(maxPrice) : null;
+    const filteredItems = items.filter((item) => {
+      const normalizedTitle = item.title?.toLowerCase() || '';
+      const normalizedDescription = item.description?.toLowerCase() || '';
+      const normalizedLocation = item.location?.toLowerCase() || '';
+      const normalizedCategory = item.category?.toLowerCase() || '';
+      const normalizedSubcategory = item.subcategory?.toLowerCase() || '';
+      const normalizedPaymentType = item.paymentType?.toLowerCase() || '';
+      const normalizedCollectionType = item.collectionType?.toLowerCase() || '';
+      const normalizedCategorySlug = normalizedCategory
+        .replace(/[\s&]+/g, '-')
+        .replace(/[^a-z0-9-]/g, '');
+      const normalizedCondition = item.condition?.toLowerCase() || '';
 
-        const matchesCategory = !category ||
-          item.category === category ||
-          item.subcategory === category ||
-          item.category?.toLowerCase().replace(/[\s&]+/g, '-').replace(/[^a-z0-9-]/g, '') === category;
+      const priceNumeric = typeof item.priceNumeric === 'number'
+        ? item.priceNumeric
+        : parseFloat(String(item.price || item.priceString || '').replace(/[^0-9.]/g, '')) || 0;
 
-        const matchesCondition = !condition ||
-          item.condition === condition;
+      const itemTags = Array.isArray(item.tags)
+        ? item.tags.map((tag) => String(tag).toLowerCase())
+        : [];
 
-        return matchesSearch && matchesLocation && matchesCategory && matchesCondition;
-      });
-    }
-    
-    // Get total count for pagination info
-    const countQuery = db.collection('marketplace')
-      .where('status', '==', 'active');
-    
-    if (condition) {
-      countQuery.where('condition', '==', condition);
-    }
-    
-    if (category) {
-      countQuery.where('category', '==', category);
-    }
-    
-    const countSnapshot = await countQuery.count().get();
-    const totalCount = countSnapshot.data().count;
+      const matchesSearch = !search ||
+        normalizedTitle.includes(search.toLowerCase()) ||
+        normalizedDescription.includes(search.toLowerCase());
+
+      const matchesLocation = !location || normalizedLocation.includes(location.toLowerCase());
+      const matchesCommunity = !communityId || item.communityId === communityId;
+
+      const matchesCategory = !category ||
+        normalizedCategory === category.toLowerCase() ||
+        normalizedSubcategory === category.toLowerCase() ||
+        normalizedCategorySlug === category.toLowerCase();
+
+      const matchesCondition = !condition || normalizedCondition === condition.toLowerCase();
+      const matchesPaymentType = !paymentType || normalizedPaymentType === paymentType.toLowerCase();
+      const matchesCollectionType = !collectionType || normalizedCollectionType === collectionType.toLowerCase();
+
+      const matchesMinPrice = minPriceValue === null || priceNumeric >= minPriceValue;
+      const matchesMaxPrice = maxPriceValue === null || priceNumeric <= maxPriceValue;
+
+      const matchesTags = tags.length === 0 || tags.some((tag) => itemTags.includes(tag));
+
+      return matchesSearch &&
+        matchesLocation &&
+        matchesCommunity &&
+        matchesCategory &&
+        matchesCondition &&
+        matchesPaymentType &&
+        matchesCollectionType &&
+        matchesMinPrice &&
+        matchesMaxPrice &&
+        matchesTags;
+    });
+
+    // Pagination AFTER filtering
+    const totalCount = filteredItems.length;
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedItems = filteredItems.slice(startIndex, endIndex);
+    const hasMore = endIndex < totalCount;
     
     const result = {
       success: true,
-      data: items,
+      data: paginatedItems,
       pagination: {
         page,
         limit,
@@ -121,10 +207,25 @@ export async function GET(request) {
     
   } catch (error) {
     logger.error('Error fetching marketplace items', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch marketplace items' },
-      { status: 500 }
-    );
+    if (isQuotaExceededError(error)) {
+      const { searchParams } = new URL(request.url);
+      const page = parseInt(searchParams.get('page') || '1');
+      const limit = parseInt(searchParams.get('limit') || '12');
+      return NextResponse.json({
+        success: true,
+        data: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasMore: false
+        },
+        fallback: true,
+        quotaLimited: true
+      });
+    }
+    return errorResponse('Failed to fetch marketplace items', 'MARKETPLACE_FETCH_FAILED', 500);
   }
 }
 
@@ -134,23 +235,36 @@ export async function POST(request) {
     // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
 
     const data = await request.json();
-    
-    // Validate required fields
-    if (!data.title || !data.location || !data.price) {
+
+    const lengthValidation = validateListingStringLengths(data);
+    if (!lengthValidation.valid) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        {
+          success: false,
+          error: buildLengthExceededErrorMessage(lengthValidation),
+          code: 'VALIDATION_LENGTH_EXCEEDED',
+          field: lengthValidation.field,
+          maxLength: lengthValidation.maxLength,
+          actualLength: lengthValidation.actualLength
+        },
         { status: 400 }
       );
     }
     
+    // Validate required fields
+    if (!data.title || !data.location || !data.price) {
+      return errorResponse('Missing required fields', 'VALIDATION_ERROR', 400);
+    }
+    
     // Use admin Firestore
-    const db = getFirestore();
+    const db = getAdminFirestore();
+    const userTrustFields = await getUserTrustFields(db, userId);
     const docRef = db.collection('marketplace').doc();
     
     // Generate slug
@@ -158,7 +272,8 @@ export async function POST(request) {
     
     // Prepare marketplace item data
     const itemData = {
-      ...data,
+      ...normalizeImageFields(data),
+      ...userTrustFields,
       userId,
       slug,
       status: 'active',
@@ -170,6 +285,14 @@ export async function POST(request) {
     };
     
     await docRef.set(itemData);
+
+    if (isAppDbEnabled()) {
+      try {
+        await upsertPublicListings('marketplace', [{ id: docRef.id, ...itemData }]);
+      } catch (postgresError) {
+        logger.warn('Failed to sync created marketplace item to PostgreSQL', postgresError);
+      }
+    }
     
     return NextResponse.json({
       success: true,
@@ -179,9 +302,6 @@ export async function POST(request) {
     
   } catch (error) {
     logger.error('Error creating marketplace item', error);
-    return NextResponse.json(
-      { error: 'Failed to create marketplace item' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to create marketplace item', 'MARKETPLACE_CREATE_FAILED', 500);
   }
 }

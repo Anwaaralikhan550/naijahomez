@@ -1,12 +1,23 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+import { isAdmin } from '@/lib/auth-middleware';
 import cache from '@/lib/cache';
 
-// Clear all cache - useful after slug updates
+const ensureAdmin = async (request) => {
+  const adminResult = await isAdmin(request);
+  if (!adminResult.success) {
+    return adminResult.error;
+  }
+  return null;
+};
+
 export async function POST(request) {
   try {
-    // Clear all cached data
+    const adminError = await ensureAdmin(request);
+    if (adminError) return adminError;
+
     cache.clear();
-    
+
     return NextResponse.json({
       success: true,
       message: 'Cache cleared successfully'
@@ -20,11 +31,13 @@ export async function POST(request) {
   }
 }
 
-// GET version for easy testing
 export async function GET(request) {
   try {
+    const adminError = await ensureAdmin(request);
+    if (adminError) return adminError;
+
     cache.clear();
-    
+
     return NextResponse.json({
       success: true,
       message: 'Cache cleared successfully',

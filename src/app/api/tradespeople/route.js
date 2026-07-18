@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getAuth } from 'firebase-admin/auth';
@@ -5,6 +6,28 @@ import { getAdminFirestore } from '@/lib/firebase-admin';
 import cache, { cacheKeys } from '@/lib/cache';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+import { validateListingStringLengths, buildLengthExceededErrorMessage } from '@/lib/listingLengthValidation';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const rawMessage = payload?.error;
+  const message = (typeof rawMessage === 'string' && rawMessage) || rawMessage?.message || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
+import { normalizeImageFields } from '@/lib/hubFirestore';
+import { getUserTrustFields } from '@/lib/kyc/kyc-service';
+import listingRepository from '@/lib/db/listing-repository.cjs';
+const { fetchListings, isAppDbEnabled, upsertPublicListings } = listingRepository;
+
+function isQuotaExceededError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === 8 || message.includes('resource_exhausted') || message.includes('quota exceeded');
+}
 
 // GET - Fetch tradespeople/services with efficient server-side filtering
 export async function GET(request) {
@@ -36,29 +59,70 @@ export async function GET(request) {
     if (cachedResult) {
       return NextResponse.json(cachedResult);
     }
+
+    if (isAppDbEnabled()) {
+      try {
+        const postgresResult = await fetchListings({
+          collectionName: 'services',
+          page,
+          limit,
+          search,
+          minPrice,
+          maxPrice,
+          location,
+          sortBy,
+          sortOrder,
+          filters: {
+            serviceType,
+            featured
+          }
+        });
+
+        if (postgresResult?.pagination?.total > 0 || process.env.POSTGRES_ALLOW_EMPTY_RESULTS === 'true') {
+          postgresResult.data = postgresResult.data.map((service) => normalizeImageFields(service));
+          cache.set(cacheKey, postgresResult, 300000);
+          return NextResponse.json(postgresResult);
+        }
+      } catch (postgresError) {
+        logger.warn('PostgreSQL tradespeople query failed, falling back to Firestore', postgresError);
+      }
+    }
     
     // Initialize admin SDK
     const db = getAdminFirestore();
-    
-    // Simple query - only filter by status and sort
+
+    const fetchLimit = Math.min(Math.max(limit * 6, 60), 220);
     let query = db.collection('services')
-      .where('status', '==', 'active')
-      .orderBy('createdAt', 'desc')
-      .limit(50); // Get more items to allow for filtering
-    
-    // Execute query
-    const snapshot = await query.get();
+      .where('status', '==', 'active');
+
+    if (serviceType) {
+      query = query.where('serviceType', '==', serviceType);
+    }
+
+    query = query.orderBy('createdAt', 'desc').limit(fetchLimit);
+
+    let snapshot;
+    try {
+      snapshot = await query.get();
+    } catch (queryError) {
+      logger.warn('Tradespeople query fallback triggered', queryError);
+      snapshot = await db.collection('services')
+        .where('status', '==', 'active')
+        .orderBy('createdAt', 'desc')
+        .limit(fetchLimit)
+        .get();
+    }
     
     // Process results
     let services = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      services.push({
+      services.push(normalizeImageFields({
         id: doc.id,
         ...data,
-        createdAt: data.createdAt?.toDate().toISOString(),
-        updatedAt: data.updatedAt?.toDate().toISOString()
-      });
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || null,
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null
+      }));
     });
     
     // Apply all filters client-side
@@ -105,10 +169,14 @@ export async function GET(request) {
     });
     
     // Get total count for pagination info
-    const countSnapshot = await db.collection('services')
-      .where('status', '==', 'active')
-      .count()
-      .get();
+    let countQuery = db.collection('services')
+      .where('status', '==', 'active');
+
+    if (serviceType) {
+      countQuery = countQuery.where('serviceType', '==', serviceType);
+    }
+
+    const countSnapshot = await countQuery.count().get();
     const totalCount = countSnapshot.data().count;
 
     // Apply pagination
@@ -136,36 +204,64 @@ export async function GET(request) {
     
   } catch (error) {
     logger.error('Error fetching tradespeople', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch tradespeople' },
-      { status: 500 }
-    );
+    if (isQuotaExceededError(error)) {
+      const { searchParams } = new URL(request.url);
+      const page = parseInt(searchParams.get('page') || '1');
+      const limit = parseInt(searchParams.get('limit') || '12');
+      return NextResponse.json({
+        success: true,
+        data: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasMore: false
+        },
+        fallback: true,
+        quotaLimited: true
+      });
+    }
+    return errorResponse('Failed to fetch tradespeople', 'TRADESPEOPLE_FETCH_FAILED', 500);
   }
 }
 
 // POST - Create a new service/tradesperson listing (authenticated)
 export async function POST(request) {
   try {
-        // Verify authentication using the auth middleware
+    // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
 
     const data = await request.json();
-    
-    // Validate required fields
-    if (!data.title || !data.location || !data.serviceType) {
+
+    const lengthValidation = validateListingStringLengths(data);
+    if (!lengthValidation.valid) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        {
+          success: false,
+          error: buildLengthExceededErrorMessage(lengthValidation),
+          code: 'VALIDATION_LENGTH_EXCEEDED',
+          field: lengthValidation.field,
+          maxLength: lengthValidation.maxLength,
+          actualLength: lengthValidation.actualLength
+        },
         { status: 400 }
       );
     }
     
+    // Validate required fields
+    if (!data.title || !data.location || !data.serviceType) {
+      return errorResponse('Missing required fields', 'VALIDATION_ERROR', 400);
+    }
+    
     // Use admin Firestore
-    const db = getFirestore();
+    const db = getAdminFirestore();
+    const userTrustFields = await getUserTrustFields(db, userId);
     const docRef = db.collection('services').doc();
     
     // Generate slug
@@ -174,6 +270,7 @@ export async function POST(request) {
     // Prepare service data
     const serviceData = {
       ...data,
+      ...userTrustFields,
       userId,
       slug,
       status: 'active',
@@ -187,6 +284,14 @@ export async function POST(request) {
     };
     
     await docRef.set(serviceData);
+
+    if (isAppDbEnabled()) {
+      try {
+        await upsertPublicListings('services', [{ id: docRef.id, ...serviceData }]);
+      } catch (postgresError) {
+        logger.warn('Failed to sync created service to PostgreSQL', postgresError);
+      }
+    }
     
     return NextResponse.json({
       success: true,
@@ -196,9 +301,6 @@ export async function POST(request) {
     
   } catch (error) {
     logger.error('Error creating service', error);
-    return NextResponse.json(
-      { error: 'Failed to create service' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to create service', 'SERVICE_CREATE_FAILED', 500);
   }
 }

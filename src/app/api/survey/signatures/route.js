@@ -1,7 +1,19 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const message = payload?.error || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
 
 /**
  * Survey Signatures API
@@ -35,14 +47,14 @@ import logger from '@/lib/logger';
 export async function GET(request) {
   try {
     const authResult = await verifyAuth(request);
-    if (!authResult.success) return authResult.error;
+    if (!authResult.success) return authErrorResponse(authResult.error);
 
     const userId = authResult.userId;
     const { searchParams } = new URL(request.url);
     const surveyId = searchParams.get('surveyId');
 
     if (!surveyId) {
-      return NextResponse.json({ error: 'surveyId is required' }, { status: 400 });
+      return errorResponse('surveyId is required', 'SURVEY_ID_REQUIRED', 400);
     }
 
     const db = getAdminFirestore();
@@ -50,13 +62,13 @@ export async function GET(request) {
     const surveySnap = await surveyRef.get();
 
     if (!surveySnap.exists) {
-      return NextResponse.json({ error: 'Survey not found' }, { status: 404 });
+      return errorResponse('Survey not found', 'SURVEY_NOT_FOUND', 404);
     }
 
     // Ownership check
     const surveyData = surveySnap.data();
     if (surveyData.userId !== userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return errorResponse('Forbidden', 'FORBIDDEN', 403);
     }
 
     // ── Backward-compat migration ─────────────────────────────
@@ -88,7 +100,7 @@ export async function GET(request) {
     return NextResponse.json({ success: true, data: signatures });
   } catch (error) {
     logger.error('Error fetching survey signatures', error);
-    return NextResponse.json({ error: 'Failed to fetch signatures' }, { status: 500 });
+    return errorResponse('Failed to fetch signatures', 'SURVEY_SIGNATURES_FETCH_FAILED', 500);
   }
 }
 
@@ -96,33 +108,24 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const authResult = await verifyAuth(request);
-    if (!authResult.success) return authResult.error;
+    if (!authResult.success) return authErrorResponse(authResult.error);
 
     const userId = authResult.userId;
     const body = await request.json();
     const { surveyId, imageData, label } = body;
 
     if (!surveyId || !imageData) {
-      return NextResponse.json(
-        { error: 'surveyId and imageData are required' },
-        { status: 400 }
-      );
+      return errorResponse('surveyId and imageData are required', 'SURVEY_SIGNATURE_FIELDS_REQUIRED', 400);
     }
 
     // Basic validation — imageData must look like a data-url
     if (!imageData.startsWith('data:image/')) {
-      return NextResponse.json(
-        { error: 'imageData must be a valid base64 image data-url' },
-        { status: 400 }
-      );
+      return errorResponse('imageData must be a valid base64 image data-url', 'INVALID_SIGNATURE_IMAGE_DATA', 400);
     }
 
     // Cap at ~2 MB per signature to stay well within Firestore doc limits
     if (imageData.length > 2 * 1024 * 1024) {
-      return NextResponse.json(
-        { error: 'Signature image too large (max 2 MB)' },
-        { status: 400 }
-      );
+      return errorResponse('Signature image too large (max 2 MB)', 'SIGNATURE_TOO_LARGE', 400);
     }
 
     const db = getAdminFirestore();
@@ -130,20 +133,17 @@ export async function POST(request) {
     const surveySnap = await surveyRef.get();
 
     if (!surveySnap.exists) {
-      return NextResponse.json({ error: 'Survey not found' }, { status: 404 });
+      return errorResponse('Survey not found', 'SURVEY_NOT_FOUND', 404);
     }
 
     if (surveySnap.data().userId !== userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return errorResponse('Forbidden', 'FORBIDDEN', 403);
     }
 
     // Cap total signatures per survey
     const existingCount = (await surveyRef.collection('signatures').count().get()).data().count;
     if (existingCount >= 20) {
-      return NextResponse.json(
-        { error: 'Maximum 20 signatures per survey reached' },
-        { status: 400 }
-      );
+      return errorResponse('Maximum 20 signatures per survey reached', 'SIGNATURE_LIMIT_REACHED', 400);
     }
 
     // APPEND — create a new doc in the sub-collection
@@ -170,7 +170,7 @@ export async function POST(request) {
     );
   } catch (error) {
     logger.error('Error saving survey signature', error);
-    return NextResponse.json({ error: 'Failed to save signature' }, { status: 500 });
+    return errorResponse('Failed to save signature', 'SURVEY_SIGNATURE_SAVE_FAILED', 500);
   }
 }
 
@@ -178,7 +178,7 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     const authResult = await verifyAuth(request);
-    if (!authResult.success) return authResult.error;
+    if (!authResult.success) return authErrorResponse(authResult.error);
 
     const userId = authResult.userId;
     const { searchParams } = new URL(request.url);
@@ -186,10 +186,7 @@ export async function DELETE(request) {
     const signatureId = searchParams.get('signatureId');
 
     if (!surveyId || !signatureId) {
-      return NextResponse.json(
-        { error: 'surveyId and signatureId are required' },
-        { status: 400 }
-      );
+      return errorResponse('surveyId and signatureId are required', 'SURVEY_SIGNATURE_DELETE_FIELDS_REQUIRED', 400);
     }
 
     const db = getAdminFirestore();
@@ -197,18 +194,18 @@ export async function DELETE(request) {
     const surveySnap = await surveyRef.get();
 
     if (!surveySnap.exists) {
-      return NextResponse.json({ error: 'Survey not found' }, { status: 404 });
+      return errorResponse('Survey not found', 'SURVEY_NOT_FOUND', 404);
     }
 
     if (surveySnap.data().userId !== userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return errorResponse('Forbidden', 'FORBIDDEN', 403);
     }
 
     const sigRef = surveyRef.collection('signatures').doc(signatureId);
     const sigSnap = await sigRef.get();
 
     if (!sigSnap.exists) {
-      return NextResponse.json({ error: 'Signature not found' }, { status: 404 });
+      return errorResponse('Signature not found', 'SIGNATURE_NOT_FOUND', 404);
     }
 
     await sigRef.delete();
@@ -216,6 +213,6 @@ export async function DELETE(request) {
     return NextResponse.json({ success: true, message: 'Signature deleted' });
   } catch (error) {
     logger.error('Error deleting survey signature', error);
-    return NextResponse.json({ error: 'Failed to delete signature' }, { status: 500 });
+    return errorResponse('Failed to delete signature', 'SURVEY_SIGNATURE_DELETE_FAILED', 500);
   }
 }

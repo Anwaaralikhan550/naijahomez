@@ -1,6 +1,19 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
+import { normalizeImageFields } from '@/lib/hubFirestore';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const message = payload?.error || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
 
 // GET - Fetch a single marketplace item
 export async function GET(request, { params }) {
@@ -13,30 +26,24 @@ export async function GET(request, { params }) {
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Marketplace item not found' },
-        { status: 404 }
-      );
+      return errorResponse('Marketplace item not found', 'MARKETPLACE_ITEM_NOT_FOUND', 404);
     }
     
     const data = doc.data();
     
     return NextResponse.json({
       success: true,
-      data: {
+      data: normalizeImageFields({
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString()
-      }
+      })
     });
     
   } catch (error) {
     console.error('Error fetching marketplace item:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch marketplace item' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to fetch marketplace item', 'MARKETPLACE_FETCH_FAILED', 500);
   }
 }
 
@@ -48,7 +55,7 @@ export async function PUT(request, { params }) {
     // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -58,26 +65,20 @@ export async function PUT(request, { params }) {
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Marketplace item not found' },
-        { status: 404 }
-      );
+      return errorResponse('Marketplace item not found', 'MARKETPLACE_ITEM_NOT_FOUND', 404);
     }
     
     // Verify ownership
     const itemData = doc.data();
     if (itemData.userId !== userId) {
-      return NextResponse.json(
-        { error: 'Forbidden - You do not own this item' },
-        { status: 403 }
-      );
+      return errorResponse('Forbidden - You do not own this item', 'FORBIDDEN', 403);
     }
     
     const updateData = await request.json();
     
     // Prepare update data
     const updates = {
-      ...updateData,
+      ...normalizeImageFields(updateData),
       updatedAt: new Date()
     };
     
@@ -104,10 +105,7 @@ export async function PUT(request, { params }) {
     
   } catch (error) {
     console.error('Error updating marketplace item:', error);
-    return NextResponse.json(
-      { error: 'Failed to update marketplace item' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to update marketplace item', 'MARKETPLACE_UPDATE_FAILED', 500);
   }
 }
 
@@ -119,7 +117,7 @@ export async function DELETE(request, { params }) {
     // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -129,19 +127,13 @@ export async function DELETE(request, { params }) {
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Marketplace item not found' },
-        { status: 404 }
-      );
+      return errorResponse('Marketplace item not found', 'MARKETPLACE_ITEM_NOT_FOUND', 404);
     }
     
     // Verify ownership
     const itemData = doc.data();
     if (itemData.userId !== userId) {
-      return NextResponse.json(
-        { error: 'Forbidden - You do not own this item' },
-        { status: 403 }
-      );
+      return errorResponse('Forbidden - You do not own this item', 'FORBIDDEN', 403);
     }
     
     // Soft delete - update status instead of deleting
@@ -158,9 +150,6 @@ export async function DELETE(request, { params }) {
     
   } catch (error) {
     console.error('Error deleting marketplace item:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete marketplace item' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to delete marketplace item', 'MARKETPLACE_DELETE_FAILED', 500);
   }
 }

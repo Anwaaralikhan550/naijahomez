@@ -1,14 +1,28 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getAuth } from 'firebase-admin/auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
 import { fixListingEncoding } from '@/utils/fixEncoding';
+import { normalizeImageFields } from '@/lib/hubFirestore';
+import { deletePublicListing, upsertPublicListings } from '@/lib/db/listing-repository.cjs';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const message = payload?.error || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
 
 // GET - Fetch a single property
 export async function GET(request, { params }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     
     const db = getAdminFirestore();
     
@@ -16,42 +30,36 @@ export async function GET(request, { params }) {
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Property not found' },
-        { status: 404 }
-      );
+      return errorResponse('Property not found', 'PROPERTY_NOT_FOUND', 404);
     }
     
     const data = doc.data();
     
     return NextResponse.json({
       success: true,
-      data: fixListingEncoding({
+      data: fixListingEncoding(normalizeImageFields({
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString()
-      })
+      }))
     });
     
   } catch (error) {
     console.error('Error fetching property:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch property' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to fetch property', 'PROPERTY_FETCH_FAILED', 500);
   }
 }
 
 // PUT - Update a property (owner only)
 export async function PUT(request, { params }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     
         // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -61,26 +69,20 @@ export async function PUT(request, { params }) {
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Property not found' },
-        { status: 404 }
-      );
+      return errorResponse('Property not found', 'PROPERTY_NOT_FOUND', 404);
     }
     
     // Verify ownership
     const propertyData = doc.data();
     if (propertyData.userId !== userId) {
-      return NextResponse.json(
-        { error: 'Forbidden - You do not own this property' },
-        { status: 403 }
-      );
+      return errorResponse('Forbidden - You do not own this property', 'FORBIDDEN', 403);
     }
     
     const updateData = await request.json();
     
     // Prepare update data
     const updates = {
-      ...updateData,
+      ...normalizeImageFields(updateData),
       updatedAt: new Date()
     };
     
@@ -99,6 +101,13 @@ export async function PUT(request, { params }) {
     }
     
     await docRef.update(updates);
+    await upsertPublicListings('properties', [{
+      id,
+      ...propertyData,
+      ...updates
+    }]).catch((error) => {
+      console.warn('Failed to update public listing mirror:', error?.message || error);
+    });
     
     return NextResponse.json({
       success: true,
@@ -107,22 +116,19 @@ export async function PUT(request, { params }) {
     
   } catch (error) {
     console.error('Error updating property:', error);
-    return NextResponse.json(
-      { error: 'Failed to update property' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to update property', 'PROPERTY_UPDATE_FAILED', 500);
   }
 }
 
 // DELETE - Delete a property (owner only)
 export async function DELETE(request, { params }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     
         // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
@@ -132,19 +138,13 @@ export async function DELETE(request, { params }) {
     const doc = await docRef.get();
     
     if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Property not found' },
-        { status: 404 }
-      );
+      return errorResponse('Property not found', 'PROPERTY_NOT_FOUND', 404);
     }
     
     // Verify ownership
     const propertyData = doc.data();
     if (propertyData.userId !== userId) {
-      return NextResponse.json(
-        { error: 'Forbidden - You do not own this property' },
-        { status: 403 }
-      );
+      return errorResponse('Forbidden - You do not own this property', 'FORBIDDEN', 403);
     }
     
     // Soft delete - update status instead of deleting
@@ -152,6 +152,9 @@ export async function DELETE(request, { params }) {
       status: 'deleted',
       deletedAt: new Date(),
       updatedAt: new Date()
+    });
+    await deletePublicListing('properties', id).catch((error) => {
+      console.warn('Failed to delete public listing mirror:', error?.message || error);
     });
     
     return NextResponse.json({
@@ -161,9 +164,6 @@ export async function DELETE(request, { params }) {
     
   } catch (error) {
     console.error('Error deleting property:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete property' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to delete property', 'PROPERTY_DELETE_FAILED', 500);
   }
 }

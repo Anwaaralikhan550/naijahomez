@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getAuth } from 'firebase-admin/auth';
@@ -5,6 +6,28 @@ import { getAdminFirestore } from '@/lib/firebase-admin';
 import cache, { cacheKeys } from '@/lib/cache';
 import { verifyAuth, isAdmin } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+import { normalizeImageFields } from '@/lib/hubFirestore';
+import { validateListingStringLengths, buildLengthExceededErrorMessage } from '@/lib/listingLengthValidation';
+import { getUserTrustFields } from '@/lib/kyc/kyc-service';
+import listingRepository from '@/lib/db/listing-repository.cjs';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+const { fetchListings, isAppDbEnabled, upsertPublicListings } = listingRepository;
+
+function isQuotaExceededError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === 8 || message.includes('resource_exhausted') || message.includes('quota exceeded');
+}
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const rawMessage = payload?.error;
+  const message = (typeof rawMessage === 'string' && rawMessage) || rawMessage?.message || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
 
 // GET - Fetch noticeboard items with efficient server-side filtering
 export async function GET(request) {
@@ -15,15 +38,20 @@ export async function GET(request) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '12');
     const search = searchParams.get('search') || '';
-    const category = searchParams.get('category');
+    const noticeType = searchParams.get('noticeType');
+    const category = searchParams.get('category') || noticeType;
     const priority = searchParams.get('priority');
     const location = searchParams.get('location');
+    const tags = (searchParams.get('tags') || searchParams.get('tag') || '')
+      .split(',')
+      .map((tag) => tag.trim().toLowerCase())
+      .filter(Boolean);
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     
     // Create cache key from parameters
     const cacheParams = {
-      page, limit, search, category, priority, location, sortBy, sortOrder
+      page, limit, search, category, priority, location, sortBy, sortOrder, tags: tags.join(',')
     };
     
     const cacheKey = cacheKeys.noticeboard(cacheParams);
@@ -33,78 +61,141 @@ export async function GET(request) {
     if (cachedResult) {
       return NextResponse.json(cachedResult);
     }
+
+    if (isAppDbEnabled()) {
+      try {
+        const postgresResult = await fetchListings({
+          collectionName: 'noticeboard',
+          page,
+          limit,
+          search,
+          location,
+          sortBy,
+          sortOrder,
+          filters: {
+            category,
+            tags
+          }
+        });
+
+        if (postgresResult?.pagination?.total > 0 || process.env.POSTGRES_ALLOW_EMPTY_RESULTS === 'true') {
+          postgresResult.data = postgresResult.data.map((notice) => normalizeImageFields(notice));
+          cache.set(cacheKey, postgresResult, 180000);
+          return NextResponse.json(postgresResult);
+        }
+      } catch (postgresError) {
+        logger.warn('PostgreSQL noticeboard query failed, falling back to Firestore', postgresError);
+      }
+    }
     
     // Initialize admin SDK
     const db = getAdminFirestore();
-    
-    // Simple query - only filter by status and sort
+
+    const hasExactFilters = Boolean(category || priority || tags.length > 0);
+    const fetchLimit = Math.min(Math.max(limit * (hasExactFilters ? 6 : 8), hasExactFilters ? 60 : 80), hasExactFilters ? 240 : 500);
+
     let query = db.collection('noticeboard')
-      .where('status', '==', 'active')
-      .orderBy('createdAt', 'desc')
-      .limit(50); // Get more items to allow for filtering
-    
-    // Execute query
-    const snapshot = await query.get();
+      .where('status', '==', 'active');
+
+    if (category) {
+      query = query.where('category', '==', category);
+    }
+
+    if (priority) {
+      query = query.where('priority', '==', priority);
+    }
+
+    if (tags.length > 0) {
+      query = query.where('tags', 'array-contains-any', tags.slice(0, 10));
+    }
+
+    query = query.orderBy('createdAt', 'desc').limit(fetchLimit);
+
+    let snapshot;
+    try {
+      snapshot = await query.get();
+    } catch (queryError) {
+      logger.warn('Noticeboard query fallback triggered', queryError);
+      snapshot = await db.collection('noticeboard')
+        .where('status', '==', 'active')
+        .orderBy('createdAt', 'desc')
+        .limit(fetchLimit)
+        .get();
+    }
     
     // Process results
     let notices = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      notices.push({
+      notices.push(normalizeImageFields({
         id: doc.id,
         ...data,
-        createdAt: data.createdAt?.toDate().toISOString(),
-        updatedAt: data.updatedAt?.toDate().toISOString(),
-        expiresAt: data.expiresAt?.toDate().toISOString()
-      });
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || null,
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null,
+        expiresAt: data.expiresAt?.toDate?.()?.toISOString() || null
+      }));
     });
     
-    // Check if there are more results
-    const hasMore = notices.length > limit;
-    if (hasMore) {
-      notices = notices.slice(0, limit);
-    }
-    
-    // Apply client-side filters for text search and location
-    if (search || location) {
-      notices = notices.filter(notice => {
-        const matchesSearch = !search || 
-          notice.title?.toLowerCase().includes(search.toLowerCase()) ||
-          notice.description?.toLowerCase().includes(search.toLowerCase()) ||
-          notice.content?.toLowerCase().includes(search.toLowerCase());
-        
-        const matchesLocation = !location || 
-          notice.location?.toLowerCase().includes(location.toLowerCase());
-        
-        return matchesSearch && matchesLocation;
-      });
-    }
-    
-    // Filter out expired notices
+    // Filter out expired notices first
     const now = new Date();
     notices = notices.filter(notice => {
       if (!notice.expiresAt) return true; // No expiry date
       return new Date(notice.expiresAt) > now;
     });
-    
-    // Get total count for pagination info
-    const countQuery = db.collection('noticeboard')
-      .where('status', '==', 'active');
-    
-    if (category) {
-      countQuery.where('category', '==', category);
-    }
-    
-    if (priority) {
-      countQuery.where('priority', '==', priority);
-    }
-    
-    const countSnapshot = await countQuery.count().get();
-    const totalCount = countSnapshot.data().count;
+
+    // Apply filters BEFORE pagination
+    const filteredNotices = notices.filter((notice) => {
+      const normalizedTitle = notice.title?.toLowerCase() || '';
+      const normalizedDescription = notice.description?.toLowerCase() || '';
+      const normalizedContent = notice.content?.toLowerCase() || '';
+      const normalizedLocation = notice.location?.toLowerCase() || '';
+      const noticeCategory = String(notice.category || notice.noticeType || '').toLowerCase();
+      const noticePriority = String(notice.priority || '').toLowerCase();
+
+      const itemTags = Array.isArray(notice.tags)
+        ? notice.tags.map((tag) => String(tag).toLowerCase())
+        : [];
+
+      const matchesSearch = !search ||
+        normalizedTitle.includes(search.toLowerCase()) ||
+        normalizedDescription.includes(search.toLowerCase()) ||
+        normalizedContent.includes(search.toLowerCase());
+
+      const matchesLocation = !location || normalizedLocation.includes(location.toLowerCase());
+      const matchesCategory = !category || noticeCategory === category.toLowerCase();
+      const matchesPriority = !priority || noticePriority === priority.toLowerCase();
+      const matchesTags = tags.length === 0 || tags.some((tag) => itemTags.includes(tag));
+
+      return matchesSearch && matchesLocation && matchesCategory && matchesPriority && matchesTags;
+    });
+
+    // Apply sorting
+    filteredNotices.sort((a, b) => {
+      if (sortBy === 'createdAt') {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return sortOrder === 'asc' ? aTime - bTime : bTime - aTime;
+      }
+      if (sortBy === 'title') {
+        const aTitle = (a.title || '').toLowerCase();
+        const bTitle = (b.title || '').toLowerCase();
+        return sortOrder === 'asc'
+          ? aTitle.localeCompare(bTitle)
+          : bTitle.localeCompare(aTitle);
+      }
+      return 0;
+    });
+
+    // Pagination AFTER filtering
+    const totalCount = filteredNotices.length;
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedNotices = filteredNotices.slice(startIndex, endIndex);
+    const hasMore = endIndex < totalCount;
     
     const result = {
       success: true,
-      data: notices,
+      data: paginatedNotices,
       pagination: {
         page,
         limit,
@@ -121,10 +212,25 @@ export async function GET(request) {
     
   } catch (error) {
     logger.error('Error fetching noticeboard items', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch noticeboard items' },
-      { status: 500 }
-    );
+    if (isQuotaExceededError(error)) {
+      const { searchParams } = new URL(request.url);
+      const page = parseInt(searchParams.get('page') || '1');
+      const limit = parseInt(searchParams.get('limit') || '12');
+      return NextResponse.json({
+        success: true,
+        data: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasMore: false
+        },
+        fallback: true,
+        quotaLimited: true
+      });
+    }
+    return errorResponse('Failed to fetch noticeboard items', 'NOTICEBOARD_FETCH_FAILED', 500);
   }
 }
 
@@ -134,23 +240,36 @@ export async function POST(request) {
         // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const userId = authResult.userId;
 
     const data = await request.json();
-    
-    // Validate required fields
-    if (!data.title || !data.description) {
+
+    const lengthValidation = validateListingStringLengths(data);
+    if (!lengthValidation.valid) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        {
+          success: false,
+          error: buildLengthExceededErrorMessage(lengthValidation),
+          code: 'VALIDATION_LENGTH_EXCEEDED',
+          field: lengthValidation.field,
+          maxLength: lengthValidation.maxLength,
+          actualLength: lengthValidation.actualLength
+        },
         { status: 400 }
       );
     }
     
+    // Validate required fields
+    if (!data.title || !data.description) {
+      return errorResponse('Missing required fields', 'VALIDATION_ERROR', 400);
+    }
+    
     // Use admin Firestore
-    const db = getFirestore();
+    const db = getAdminFirestore();
+    const userTrustFields = await getUserTrustFields(db, userId);
     const docRef = db.collection('noticeboard').doc();
     
     // Generate slug
@@ -175,7 +294,8 @@ export async function POST(request) {
     
     // Prepare noticeboard data
     const noticeData = {
-      ...data,
+      ...normalizeImageFields(data),
+      ...userTrustFields,
       userId,
       slug,
       status: 'active',
@@ -188,6 +308,14 @@ export async function POST(request) {
     };
     
     await docRef.set(noticeData);
+
+    if (isAppDbEnabled()) {
+      try {
+        await upsertPublicListings('noticeboard', [{ id: docRef.id, ...noticeData }]);
+      } catch (postgresError) {
+        logger.warn('Failed to sync created noticeboard item to PostgreSQL', postgresError);
+      }
+    }
     
     return NextResponse.json({
       success: true,
@@ -197,9 +325,6 @@ export async function POST(request) {
     
   } catch (error) {
     logger.error('Error creating noticeboard item', error);
-    return NextResponse.json(
-      { error: 'Failed to create noticeboard item' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to create noticeboard item', 'NOTICEBOARD_CREATE_FAILED', 500);
   }
 }

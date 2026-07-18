@@ -1,4 +1,34 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+
+function errorResponse(message, code = 'INTERNAL_ERROR', status = 500) {
+  return NextResponse.json({ success: false, error: message, code }, { status });
+}
+
+async function authFailureResponse(authError, fallbackCode = 'UNAUTHORIZED') {
+  const status = authError?.status || 401;
+  let message = status === 403 ? 'Forbidden' : status === 503 ? 'Authentication service unavailable' : 'Unauthorized';
+
+  try {
+    const payload = await authError.clone().json();
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      message = payload.error;
+    }
+  } catch {
+    // Keep fallback message.
+  }
+
+  const code =
+    status === 401 ? 'UNAUTHORIZED' :
+    status === 403 ? 'FORBIDDEN' :
+    status === 404 ? 'NOT_FOUND' :
+    status === 503 ? 'SERVICE_UNAVAILABLE' :
+    fallbackCode;
+
+  return errorResponse(message, code, status);
+}
+
+
 
 export async function GET(request, { params }) {
   try {
@@ -35,6 +65,6 @@ export async function GET(request, { params }) {
     
   } catch (error) {
     console.error('Error generating placeholder:', error);
-    return NextResponse.json({ error: 'Failed to generate placeholder' }, { status: 500 });
+    return errorResponse('Failed to generate placeholder', 'INTERNAL_ERROR', 500);
   }
 }

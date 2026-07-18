@@ -1,7 +1,19 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const message = payload?.error || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
 
 /**
  * Survey Reports API — Firestore metadata layer for generated PDFs.
@@ -29,7 +41,7 @@ import logger from '@/lib/logger';
 export async function GET(request) {
   try {
     const authResult = await verifyAuth(request);
-    if (!authResult.success) return authResult.error;
+    if (!authResult.success) return authErrorResponse(authResult.error);
 
     const userId = authResult.userId;
     const { searchParams } = new URL(request.url);
@@ -61,7 +73,7 @@ export async function GET(request) {
     return NextResponse.json({ success: true, data: reports });
   } catch (error) {
     logger.error('Error fetching survey reports', error);
-    return NextResponse.json({ error: 'Failed to fetch reports' }, { status: 500 });
+    return errorResponse('Failed to fetch reports', 'SURVEY_REPORTS_FETCH_FAILED', 500);
   }
 }
 
@@ -69,17 +81,14 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const authResult = await verifyAuth(request);
-    if (!authResult.success) return authResult.error;
+    if (!authResult.success) return authErrorResponse(authResult.error);
 
     const userId = authResult.userId;
     const body = await request.json();
     const { id, surveyId, title, filename, version, sizeBytes, signatureCount } = body;
 
     if (!id || !surveyId || !title || !filename) {
-      return NextResponse.json(
-        { error: 'id, surveyId, title, and filename are required' },
-        { status: 400 }
-      );
+      return errorResponse('id, surveyId, title, and filename are required', 'SURVEY_REPORT_FIELDS_REQUIRED', 400);
     }
 
     const db = getAdminFirestore();
@@ -87,7 +96,7 @@ export async function POST(request) {
     // Verify survey ownership
     const surveySnap = await db.collection('surveys').doc(surveyId).get();
     if (surveySnap.exists && surveySnap.data().userId !== userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return errorResponse('Forbidden', 'FORBIDDEN', 403);
     }
 
     const reportData = {
@@ -113,7 +122,7 @@ export async function POST(request) {
     );
   } catch (error) {
     logger.error('Error saving survey report metadata', error);
-    return NextResponse.json({ error: 'Failed to save report' }, { status: 500 });
+    return errorResponse('Failed to save report', 'SURVEY_REPORT_SAVE_FAILED', 500);
   }
 }
 
@@ -121,14 +130,14 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     const authResult = await verifyAuth(request);
-    if (!authResult.success) return authResult.error;
+    if (!authResult.success) return authErrorResponse(authResult.error);
 
     const userId = authResult.userId;
     const { searchParams } = new URL(request.url);
     const reportId = searchParams.get('reportId');
 
     if (!reportId) {
-      return NextResponse.json({ error: 'reportId is required' }, { status: 400 });
+      return errorResponse('reportId is required', 'REPORT_ID_REQUIRED', 400);
     }
 
     const db = getAdminFirestore();
@@ -136,11 +145,11 @@ export async function DELETE(request) {
     const reportSnap = await reportRef.get();
 
     if (!reportSnap.exists) {
-      return NextResponse.json({ error: 'Report not found' }, { status: 404 });
+      return errorResponse('Report not found', 'REPORT_NOT_FOUND', 404);
     }
 
     if (reportSnap.data().createdBy !== userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return errorResponse('Forbidden', 'FORBIDDEN', 403);
     }
 
     await reportRef.delete();
@@ -148,6 +157,6 @@ export async function DELETE(request) {
     return NextResponse.json({ success: true, message: 'Report deleted' });
   } catch (error) {
     logger.error('Error deleting survey report', error);
-    return NextResponse.json({ error: 'Failed to delete report' }, { status: 500 });
+    return errorResponse('Failed to delete report', 'SURVEY_REPORT_DELETE_FAILED', 500);
   }
 }

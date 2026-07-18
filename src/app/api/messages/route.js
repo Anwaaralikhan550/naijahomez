@@ -1,14 +1,83 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { verifyAuth } from '@/lib/auth-middleware';
 import logger from '@/lib/logger';
+
+const FIRESTORE_INDEX_URL_REGEX = /(https:\/\/console\.firebase\.google\.com\/[^\s)\]]+)/i;
+
+const errorResponse = (message, code, status = 500) =>
+  NextResponse.json({ success: false, error: message, code }, { status });
+
+const extractFirestoreIndexUrl = (error) => {
+  const message = String(error?.message || '');
+  const match = message.match(FIRESTORE_INDEX_URL_REGEX);
+  return match?.[1] || null;
+};
+
+const isFirestoreMissingIndexError = (error) => {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    code === 'FAILED_PRECONDITION' ||
+    code === '9' ||
+    message.includes('failed precondition') ||
+    (message.includes('index') && message.includes('create'))
+  );
+};
+
+const runFirestoreRead = async (readOperation, context) => {
+  try {
+    return await readOperation();
+  } catch (error) {
+    if (isFirestoreMissingIndexError(error)) {
+      const indexUrl = extractFirestoreIndexUrl(error);
+      if (indexUrl) {
+        logger.error(`[Firestore Index Required][${context}] ${indexUrl}`);
+      }
+
+      const wrappedError = new Error('Firestore index required');
+      wrappedError.code = 'FIRESTORE_INDEX_REQUIRED';
+      wrappedError.status = 503;
+      wrappedError.indexUrl = indexUrl;
+      wrappedError.context = context;
+      throw wrappedError;
+    }
+
+    throw error;
+  }
+};
+
+const firestoreErrorResponse = (error, fallbackMessage, fallbackCode) => {
+  if (error?.code === 'FIRESTORE_INDEX_REQUIRED') {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Firestore index required for this query',
+        code: 'FIRESTORE_INDEX_REQUIRED',
+        indexUrl: error?.indexUrl || null
+      },
+      { status: error?.status || 503 }
+    );
+  }
+
+  return errorResponse(fallbackMessage, fallbackCode, 500);
+};
+
+const authErrorResponse = async (authError) => {
+  const status = authError?.status || 401;
+  const payload = await authError?.clone?.().json?.().catch(() => ({}));
+  const message = payload?.error || 'Authentication required';
+  const code = status === 403 ? 'FORBIDDEN' : status === 503 ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED';
+  return errorResponse(message, code, status);
+};
 
 export async function GET(request) {
   try {
     // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const authenticatedUserId = authResult.userId;
@@ -19,51 +88,37 @@ export async function GET(request) {
     
     // Ensure user can only access their own messages
     if (userId !== authenticatedUserId) {
-      return NextResponse.json(
-        { error: 'Forbidden - Cannot access other users messages' },
-        { status: 403 }
-      );
+      return errorResponse('Forbidden - Cannot access other users messages', 'FORBIDDEN', 403);
     }
 
     if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
-      );
+      return errorResponse('User ID is required', 'USER_ID_REQUIRED', 400);
     }
 
     if (!type || !['sent', 'received'].includes(type)) {
-      return NextResponse.json(
-        { error: 'Valid type parameter required (sent or received)' },
-        { status: 400 }
-      );
+      return errorResponse('Valid type parameter required (sent or received)', 'INVALID_MESSAGE_TYPE', 400);
     }
 
     // Initialize admin SDK and use admin Firestore
     const db = getAdminFirestore();
-    let messagesRef = db.collection('messages');
-    let queryRef;
-    
-    if (type === 'sent') {
-      queryRef = messagesRef
-        .where('senderId', '==', userId)
-        .orderBy('createdAt', 'desc');
-    } else {
-      queryRef = messagesRef
-        .where('recipientId', '==', userId)
-        .orderBy('createdAt', 'desc');
-    }
+    const filterField = type === 'sent' ? 'senderId' : 'recipientId';
+    const snapshot = await runFirestoreRead(
+      () =>
+        db.collection('messages')
+          .where(filterField, '==', userId)
+          .orderBy('createdAt', 'desc')
+          .get(),
+      `messages.list.${type}`
+    );
 
-    const snapshot = await queryRef.get();
-    const messages = [];
-    
-    snapshot.forEach(doc => {
-      messages.push({
+    const messages = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
         id: doc.id,
-        ...doc.data(),
+        ...data,
         // Convert Firestore timestamp to ISO string
-        createdAt: doc.data().createdAt?.toDate().toISOString()
-      });
+        createdAt: data.createdAt?.toDate().toISOString()
+      };
     });
 
     return NextResponse.json({
@@ -73,10 +128,7 @@ export async function GET(request) {
 
   } catch (error) {
     logger.error('Error fetching messages', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch messages' },
-      { status: 500 }
-    );
+    return firestoreErrorResponse(error, 'Failed to fetch messages', 'MESSAGES_FETCH_FAILED');
   }
 }
 
@@ -85,7 +137,7 @@ export async function POST(request) {
     // Verify authentication using the auth middleware
     const authResult = await verifyAuth(request);
     if (!authResult.success) {
-      return authResult.error;
+      return authErrorResponse(authResult.error);
     }
 
     const authenticatedUserId = authResult.userId;
@@ -107,18 +159,12 @@ export async function POST(request) {
     
     // Verify sender ID matches authenticated user
     if (senderId !== authenticatedUserId) {
-      return NextResponse.json(
-        { error: 'Forbidden - senderId must match authenticated user' },
-        { status: 403 }
-      );
+      return errorResponse('Forbidden - senderId must match authenticated user', 'FORBIDDEN', 403);
     }
 
     // Validate required fields
     if (!message || !recipientId || !listingId || !listingType || !senderId) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+      return errorResponse('Missing required fields', 'MESSAGE_FIELDS_REQUIRED', 400);
     }
 
     // Initialize admin SDK and use admin Firestore
@@ -151,9 +197,6 @@ export async function POST(request) {
 
   } catch (error) {
     logger.error('Error sending message', error);
-    return NextResponse.json(
-      { error: 'Failed to send message' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to send message', 'MESSAGE_SEND_FAILED', 500);
   }
 }

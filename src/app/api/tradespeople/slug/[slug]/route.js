@@ -1,10 +1,37 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import { normalizeImageFields } from '@/lib/hubFirestore';
+import listingRepository from '@/lib/db/listing-repository.cjs';
+const { fetchListingBySlug, fetchSimilarListings, isAppDbEnabled } = listingRepository;
 
 // GET - Fetch a service/tradesperson by slug
 export async function GET(request, { params }) {
   try {
-    const { slug } = params;
+    const { slug } = await params;
+
+    if (isAppDbEnabled()) {
+      try {
+        const postgresService = await fetchListingBySlug('services', slug);
+        if (postgresService) {
+          const similar = await fetchSimilarListings({
+            collectionName: 'services',
+            excludeId: postgresService.id,
+            serviceType: postgresService.serviceType || '',
+            limit: 3
+          });
+
+          return NextResponse.json({
+            success: true,
+            data: normalizeImageFields(postgresService),
+            similar: similar.map((item) => normalizeImageFields(item)),
+            source: 'postgres'
+          });
+        }
+      } catch (postgresError) {
+        console.warn('PostgreSQL service slug lookup failed, falling back to Firestore:', postgresError);
+      }
+    }
     
     const db = getAdminFirestore();
     
@@ -24,6 +51,30 @@ export async function GET(request, { params }) {
     
     const doc = snapshot.docs[0];
     const data = doc.data();
+    let listingUser = null;
+
+    if (data.userId) {
+      try {
+        const userDoc = await db.collection('users').doc(data.userId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data() || {};
+          listingUser = {
+            id: userDoc.id,
+            uid: userData.uid || userDoc.id,
+            displayName: userData.displayName || userData.name || null,
+            email: userData.email || null,
+            phoneNumber: userData.phoneNumber || userData.phone || null,
+            kycStatus: userData.kycStatus || null,
+            idVerification: userData.idVerification || null,
+            cacVerification: userData.cacVerification || null,
+            updatedAt: userData.updatedAt?.toDate?.()?.toISOString() || null,
+            createdAt: userData.createdAt?.toDate?.()?.toISOString() || null
+          };
+        }
+      } catch (userError) {
+        console.warn('Failed to load service listing user:', userError);
+      }
+    }
     
     // Get similar services efficiently (fallback to simple query if serviceType filtering fails)
     let similarQuery;
@@ -71,13 +122,15 @@ export async function GET(request, { params }) {
     
     return NextResponse.json({
       success: true,
-      data: {
+      data: normalizeImageFields({
         id: doc.id,
         ...data,
+        user: listingUser,
+        kycStatus: data.kycStatus || listingUser?.kycStatus || null,
         createdAt: data.createdAt?.toDate().toISOString(),
         updatedAt: data.updatedAt?.toDate().toISOString()
-      },
-      similar: similarServices.slice(0, 3)
+      }),
+      similar: similarServices.slice(0, 3).map((item) => normalizeImageFields(item))
     });
     
   } catch (error) {
