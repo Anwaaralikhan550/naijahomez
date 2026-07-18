@@ -14,6 +14,7 @@ import descriptionGenerator from '@/lib/scrapers/listing-description-generator';
 import listingRepository from '@/lib/db/listing-repository.cjs';
 import path from 'path';
 import { promises as fs } from 'fs';
+import { randomUUID } from 'crypto';
 
 const PROPERTY_FALLBACK_CACHE_PATH = process.env.PROPERTY_FALLBACK_CACHE_PATH ||
   path.join(process.cwd(), 'data', 'properties-fallback.json');
@@ -438,14 +439,16 @@ export async function POST(request) {
       return errorResponse('At least one image is required to post an ad.', 'VALIDATION_ERROR', 400);
     }
     
-    // Use admin Firestore
     const db = getAdminFirestore();
     const userTrustFields = await getUserTrustFields(db, userId);
-    const docRef = db.collection('properties').doc();
-    
-    // Generate unique slug using document ID
-    const uniqueSlug = generateDocumentSlug(data.title, docRef.id);
-    
+
+    // Postgres (public_listings) is the sole write target once app-db is
+    // enabled -- no more parallel Firestore-shim doc for these 5 listing
+    // types. Falls back to the legacy Firestore-shim path only when
+    // Postgres isn't configured (e.g. local dev without APP_DATABASE_URL).
+    const id = isAppDbEnabled() ? randomUUID() : db.collection('properties').doc().id;
+    const uniqueSlug = generateDocumentSlug(data.title, id);
+
     // Prepare property data
     const propertyData = {
       ...normalizedInput,
@@ -460,27 +463,26 @@ export async function POST(request) {
       locationLower: data.location.toLowerCase(),
       priceNumeric: parseFloat(String(data.price).replace(/[^0-9.]/g, '')) || 0
     };
-    
+
     // Infer listing type if not provided
     if (!propertyData.listingType && propertyData.price) {
       const priceString = String(propertyData.price).toLowerCase();
       const rentKeywords = ['/month', '/year', 'per month', 'per year', 'per annum'];
       propertyData.listingType = rentKeywords.some(keyword => priceString.includes(keyword)) ? 'rent' : 'sale';
     }
-    
-    await docRef.set(propertyData);
 
     if (isAppDbEnabled()) {
-      try {
-        await upsertPublicListings('properties', [{ id: docRef.id, ...propertyData }]);
-      } catch (postgresError) {
-        logger.warn('Failed to sync created property to PostgreSQL', postgresError);
+      const result = await upsertPublicListings('properties', [{ id, ...propertyData }]);
+      if (!result?.upserted) {
+        throw new Error('Failed to save property to database');
       }
+    } else {
+      await db.collection('properties').doc(id).set(propertyData);
     }
-    
+
     return NextResponse.json({
       success: true,
-      id: docRef.id,
+      id,
       data: propertyData
     });
     

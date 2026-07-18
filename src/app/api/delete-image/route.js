@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-middleware';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import logger from '@/lib/logger';
+import { hasOwnedListingImage } from '@/lib/db/listing-repository.cjs';
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION,
@@ -48,16 +49,13 @@ async function hasOwnedImage(db, collectionName, userId, imageUrl) {
 
 // Helper to verify image ownership by checking associated listings
 async function verifyImageOwnership(db, userId, imageUrl, objectKey) {
-  // Check properties collection
+  // New listings only live in public_listings (Postgres) -- check there first.
+  if (await hasOwnedListingImage(userId, imageUrl)) return true;
+
+  // Fall back to the Firestore-shim collections for older listings.
   if (await hasOwnedImage(db, 'properties', userId, imageUrl)) return true;
-
-  // Check marketplace collection
   if (await hasOwnedImage(db, 'marketplace', userId, imageUrl)) return true;
-
-  // Check housemates collection
   if (await hasOwnedImage(db, 'housemates', userId, imageUrl)) return true;
-
-  // Check services/tradespeople collection
   if (await hasOwnedImage(db, 'services', userId, imageUrl)) return true;
 
   // Allow draft uploads only when they are under the authenticated user's folder.

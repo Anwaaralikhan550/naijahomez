@@ -10,6 +10,7 @@ import { normalizeImageFields } from '@/lib/hubFirestore';
 import { validateListingStringLengths, buildLengthExceededErrorMessage } from '@/lib/listingLengthValidation';
 import { getUserTrustFields } from '@/lib/kyc/kyc-service';
 import listingRepository from '@/lib/db/listing-repository.cjs';
+import { randomUUID } from 'crypto';
 
 const errorResponse = (message, code, status = 500) =>
   NextResponse.json({ success: false, error: message, code }, { status });
@@ -345,14 +346,12 @@ export async function POST(request) {
       return errorResponse('Missing required fields', 'VALIDATION_ERROR', 400);
     }
     
-    // Use admin Firestore
     const db = getAdminFirestore();
     const userTrustFields = await getUserTrustFields(db, userId);
-    const docRef = db.collection('housemates').doc();
-    
-    // Generate slug
-    const slug = `${data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${docRef.id.slice(-6)}`;
-    
+
+    const id = isAppDbEnabled() ? randomUUID() : db.collection('housemates').doc().id;
+    const slug = `${data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${id.slice(-6)}`;
+
     // Prepare housemate data
     const housemateData = {
       ...data,
@@ -366,20 +365,19 @@ export async function POST(request) {
       locationLower: data.location.toLowerCase(),
       budgetNumeric: parseFloat(String(data.budget || data.budgetRange || '0').replace(/[^0-9.]/g, '')) || 0
     };
-    
-    await docRef.set(housemateData);
 
     if (isAppDbEnabled()) {
-      try {
-        await upsertPublicListings('housemates', [{ id: docRef.id, ...housemateData }]);
-      } catch (postgresError) {
-        logger.warn('Failed to sync created housemate listing to PostgreSQL', postgresError);
+      const result = await upsertPublicListings('housemates', [{ id, ...housemateData }]);
+      if (!result?.upserted) {
+        throw new Error('Failed to save housemate listing to database');
       }
+    } else {
+      await db.collection('housemates').doc(id).set(housemateData);
     }
-    
+
     return NextResponse.json({
       success: true,
-      id: docRef.id,
+      id,
       data: housemateData
     });
     

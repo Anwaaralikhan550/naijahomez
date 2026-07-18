@@ -10,6 +10,7 @@ import { normalizeImageFields } from '@/lib/hubFirestore';
 import { validateListingStringLengths, buildLengthExceededErrorMessage } from '@/lib/listingLengthValidation';
 import { getUserTrustFields } from '@/lib/kyc/kyc-service';
 import listingRepository from '@/lib/db/listing-repository.cjs';
+import { randomUUID } from 'crypto';
 
 const errorResponse = (message, code, status = 500) =>
   NextResponse.json({ success: false, error: message, code }, { status });
@@ -267,14 +268,12 @@ export async function POST(request) {
       return errorResponse('Missing required fields', 'VALIDATION_ERROR', 400);
     }
     
-    // Use admin Firestore
     const db = getAdminFirestore();
     const userTrustFields = await getUserTrustFields(db, userId);
-    const docRef = db.collection('noticeboard').doc();
-    
-    // Generate slug
-    const slug = `${data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${docRef.id.slice(-6)}`;
-    
+
+    const id = isAppDbEnabled() ? randomUUID() : db.collection('noticeboard').doc().id;
+    const slug = `${data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${id.slice(-6)}`;
+
     // Calculate expiry date if not provided
     let expiresAt = null;
     if (data.expiresAt) {
@@ -307,19 +306,18 @@ export async function POST(request) {
       locationLower: data.location?.toLowerCase() || ''
     };
     
-    await docRef.set(noticeData);
-
     if (isAppDbEnabled()) {
-      try {
-        await upsertPublicListings('noticeboard', [{ id: docRef.id, ...noticeData }]);
-      } catch (postgresError) {
-        logger.warn('Failed to sync created noticeboard item to PostgreSQL', postgresError);
+      const result = await upsertPublicListings('noticeboard', [{ id, ...noticeData }]);
+      if (!result?.upserted) {
+        throw new Error('Failed to save noticeboard item to database');
       }
+    } else {
+      await db.collection('noticeboard').doc(id).set(noticeData);
     }
-    
+
     return NextResponse.json({
       success: true,
-      id: docRef.id,
+      id,
       data: noticeData
     });
     

@@ -22,6 +22,7 @@ const authErrorResponse = async (authError) => {
 import { normalizeImageFields } from '@/lib/hubFirestore';
 import { getUserTrustFields } from '@/lib/kyc/kyc-service';
 import listingRepository from '@/lib/db/listing-repository.cjs';
+import { randomUUID } from 'crypto';
 const { fetchListings, isAppDbEnabled, upsertPublicListings } = listingRepository;
 
 function isQuotaExceededError(error) {
@@ -259,14 +260,12 @@ export async function POST(request) {
       return errorResponse('Missing required fields', 'VALIDATION_ERROR', 400);
     }
     
-    // Use admin Firestore
     const db = getAdminFirestore();
     const userTrustFields = await getUserTrustFields(db, userId);
-    const docRef = db.collection('services').doc();
-    
-    // Generate slug
-    const slug = `${data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${docRef.id.slice(-6)}`;
-    
+
+    const id = isAppDbEnabled() ? randomUUID() : db.collection('services').doc().id;
+    const slug = `${data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${id.slice(-6)}`;
+
     // Prepare service data
     const serviceData = {
       ...data,
@@ -282,20 +281,19 @@ export async function POST(request) {
       locationLower: data.location.toLowerCase(),
       priceNumeric: parseFloat(String(data.price || data.priceString || '0').replace(/[^0-9.]/g, '')) || 0
     };
-    
-    await docRef.set(serviceData);
 
     if (isAppDbEnabled()) {
-      try {
-        await upsertPublicListings('services', [{ id: docRef.id, ...serviceData }]);
-      } catch (postgresError) {
-        logger.warn('Failed to sync created service to PostgreSQL', postgresError);
+      const result = await upsertPublicListings('services', [{ id, ...serviceData }]);
+      if (!result?.upserted) {
+        throw new Error('Failed to save service to database');
       }
+    } else {
+      await db.collection('services').doc(id).set(serviceData);
     }
-    
+
     return NextResponse.json({
       success: true,
-      id: docRef.id,
+      id,
       data: serviceData
     });
     

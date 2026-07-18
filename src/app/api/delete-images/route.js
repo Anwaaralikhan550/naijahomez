@@ -4,6 +4,7 @@ import { S3Client, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-middleware';
 import { getAdminFirestore } from '@/lib/firebase-admin';
+import { hasOwnedListingImage } from '@/lib/db/listing-repository.cjs';
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION,
@@ -46,8 +47,11 @@ async function hasOwnedImage(db, collectionName, userId, imageUrl) {
 }
 
 async function verifyImageOwnership(db, userId, imageUrl, objectKey) {
-  const collections = ['properties', 'marketplace', 'housemates', 'services'];
+  // New listings only live in public_listings (Postgres) -- check there first.
+  if (await hasOwnedListingImage(userId, imageUrl)) return true;
 
+  // Fall back to the Firestore-shim collections for older listings.
+  const collections = ['properties', 'marketplace', 'housemates', 'services'];
   for (const collectionName of collections) {
     if (await hasOwnedImage(db, collectionName, userId, imageUrl)) {
       return true;

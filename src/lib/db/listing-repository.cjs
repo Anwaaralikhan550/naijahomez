@@ -637,6 +637,21 @@ async function deletePublicListing(collectionName, id) {
   return { enabled: true, deleted: result.rowCount || 0 };
 }
 
+// Used by the S3 image-delete routes to verify a user owns the listing an
+// image URL is attached to, across all 5 listing types in one query.
+async function hasOwnedListingImage(userId, imageUrl) {
+  if (!isAppDbEnabled() || !userId || !imageUrl) return false;
+
+  const result = await query(
+    `SELECT 1 FROM public_listings
+     WHERE user_id = $1 AND $2 = ANY(image_urls)
+     LIMIT 1`,
+    [normalizeText(userId), normalizeText(imageUrl)]
+  );
+
+  return result.rows.length > 0;
+}
+
 module.exports = {
   buildPublicListingRecord,
   countUserListings,
@@ -647,6 +662,7 @@ module.exports = {
   fetchSimilarListings,
   fetchUserListings,
   getHealthSummary,
+  hasOwnedListingImage,
   isAppDbEnabled,
   normalizeListingType,
   rowToListing,
