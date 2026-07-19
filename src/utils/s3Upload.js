@@ -78,14 +78,13 @@ export const uploadToS3 = async (file, draftId = null, userId = null, options = 
 
     const url = data.url;
 
-    // Create or update draft in Firebase
-    const user = auth.currentUser;
-    if (!user) throw new Error('User not authenticated');
+    // Create or update the draft (Postgres-backed via /api/drafts, see client-drafts.js)
+    if (!userId) throw new Error('User not authenticated');
 
     if (!draftId) {
       // Create new draft
       const draftRef = await createDraft({
-        userId: user.uid,
+        userId,
         status: 'draft',
         imageUrls: [url],
         createdAt: new Date(),
