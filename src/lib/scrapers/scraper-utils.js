@@ -244,7 +244,11 @@ async function fetchHtmlWithRetry(url, options = {}) {
           lastError = curlError;
         }
       }
-      if (response.status < 429 && response.status < 500) break;
+      // 403/429 get a real retry with backoff (bot-protection blocks are often
+      // intermittent/probabilistic, not permanent -- worth trying again with
+      // jitter rather than giving up after the first curl-fallback attempt).
+      // Other 4xx are genuine client errors and won't succeed on retry.
+      if (![403, 429].includes(response.status) && response.status < 500) break;
     } catch (error) {
       lastError = error;
     }
