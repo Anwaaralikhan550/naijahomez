@@ -8,7 +8,7 @@ import logger from '@/lib/logger';
 import path from 'path';
 import { promises as fs } from 'fs';
 
-// SECURITY: Allowed file types (images only)
+// SECURITY: Allowed file types (images + PDF for KYC documents)
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
   'image/jpg',
@@ -17,8 +17,18 @@ const ALLOWED_MIME_TYPES = [
   'image/webp',
   'image/avif',
   'image/heic',
-  'image/heif'
+  'image/heif',
+  'application/pdf'
 ];
+
+function sanitizeFolder(value) {
+  const cleaned = String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9/_-]/g, '_')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^\/|\/$/g, '');
+  return cleaned || 'uploads';
+}
 
 // SECURITY: Maximum file size (10MB)
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -323,6 +333,7 @@ export async function POST(request) {
 
     const formData = await request.formData();
     const file = formData.get('file');
+    const folder = sanitizeFolder(formData.get('folder'));
     const watermarkRequested = String(formData.get('watermark') || '').toLowerCase() === 'true';
     const watermarkPlacement = String(formData.get('watermarkPlacement') || 'center').toLowerCase();
 
@@ -335,7 +346,7 @@ export async function POST(request) {
     if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
       logger.warn(`User ${userId} attempted to upload invalid file type: ${mimeType}`);
       return errorResponse(
-        'Invalid file type. Only images are allowed (JPEG, PNG, GIF, WebP)',
+        'Invalid file type. Only images and PDF documents are allowed (JPEG, PNG, GIF, WebP, PDF)',
         'UPLOAD_INVALID_FILE_TYPE',
         400
       );
@@ -350,11 +361,13 @@ export async function POST(request) {
     // SECURITY: Validate file extension matches MIME type
     const fileName = file.name || 'image';
     const extension = fileName.split('.').pop()?.toLowerCase();
-    const validExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'heic', 'heif'];
+    const validExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'heic', 'heif', 'pdf'];
     if (extension && !validExtensions.includes(extension)) {
       logger.warn(`User ${userId} attempted to upload file with suspicious extension: ${extension}`);
       return errorResponse('Invalid file extension', 'UPLOAD_INVALID_EXTENSION', 400);
     }
+
+    const isImage = mimeType.startsWith('image/');
 
     // Validate S3 configuration
     if (!process.env.AWS_S3_BUCKET_NAME || !process.env.AWS_REGION || 
@@ -378,16 +391,18 @@ export async function POST(request) {
 
     const bytes = await file.arrayBuffer();
     const originalBuffer = Buffer.from(bytes);
-    const optimizedImage = await optimizeImageBufferForUpload(originalBuffer, mimeType, {
-      maxWidth: 1200,
-      maxHeight: 1200,
-      quality: 80,
-      forceWebp: true,
-      watermark: watermarkRequested,
-      watermarkOpacity: 0.42,
-      watermarkWidthRatio: 0.25,
-      watermarkPlacement: watermarkPlacement === 'bottom-right' ? 'bottom-right' : 'center'
-    });
+    const optimizedImage = isImage
+      ? await optimizeImageBufferForUpload(originalBuffer, mimeType, {
+          maxWidth: 1200,
+          maxHeight: 1200,
+          quality: 80,
+          forceWebp: true,
+          watermark: watermarkRequested,
+          watermarkOpacity: 0.42,
+          watermarkWidthRatio: 0.25,
+          watermarkPlacement: watermarkPlacement === 'bottom-right' ? 'bottom-right' : 'center'
+        })
+      : { buffer: originalBuffer, mimeType, extension: 'pdf', optimized: false };
 
     const uploadBuffer = optimizedImage.buffer;
     const uploadMimeType = optimizedImage.mimeType || mimeType;
@@ -398,7 +413,7 @@ export async function POST(request) {
       .replace(/[^a-zA-Z0-9.-]/g, '_')
       .substring(0, 100);
     const fileExtension = optimizedImage.extension || extension || 'jpg';
-    const uploadFileName = `uploads/${userId}/${uuidv4()}-${baseName}.${fileExtension}`;
+    const uploadFileName = `${folder}/${userId}/${uuidv4()}-${baseName}.${fileExtension}`;
 
     const params = {
       Bucket: process.env.AWS_S3_BUCKET_NAME,
@@ -416,10 +431,18 @@ export async function POST(request) {
       // Use region-specific URL format for eu-north-1
       const fileUrl = `https://s3.${process.env.AWS_REGION}.amazonaws.com/${process.env.AWS_S3_BUCKET_NAME}/${uploadFileName}`;
 
-      return NextResponse.json({ 
+      return NextResponse.json({
         url: fileUrl,
         watermarked: Boolean(optimizedImage.watermarked),
-        success: true
+        success: true,
+        metadata: {
+          name: file.name || baseName,
+          size: uploadBuffer.length,
+          type: uploadMimeType,
+          uploadedAt: new Date().toISOString(),
+          fullPath: uploadFileName,
+          bucket: process.env.AWS_S3_BUCKET_NAME
+        }
       });
     } catch (s3Error) {
       console.error('S3 Upload Error:', {

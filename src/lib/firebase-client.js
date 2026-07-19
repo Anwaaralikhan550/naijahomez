@@ -1,9 +1,8 @@
 // Firebase Client SDK - Client-side operations only
-// Used for: Authentication and Firebase Storage only
+// Used for: Authentication only (Storage moved to S3, see src/utils/s3GenericUpload.js)
 // NOT used for: Server-side API operations (that's handled by Admin SDK)
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
-import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -24,7 +23,6 @@ if (getApps().length === 0) {
 
 // Initialize Auth (for getting current user token)
 export const auth = getAuth(app);
-export const storage = getStorage(app);
 
 // Connect to emulators in development (disabled for now)
 if (process.env.NODE_ENV === 'development' && process.env.USE_FIREBASE_EMULATOR === 'true') {

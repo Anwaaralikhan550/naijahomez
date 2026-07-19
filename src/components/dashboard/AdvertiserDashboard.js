@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { BarChart3, Calendar, CreditCard, ImagePlus, Loader2, Megaphone, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authenticatedFetch } from '@/services/api';
-import uploadFile from '@/utils/firebaseStorageUpload';
+import uploadFile from '@/utils/s3GenericUpload';
 
 const SLOT_OPTIONS = [
   { id: 'home_between_listings', label: 'Home Page Sponsored Card', min: 5000 },

@@ -15,7 +15,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
-import { uploadFile } from '@/utils/firebaseStorageUpload';
+import { uploadFile } from '@/utils/s3GenericUpload';
 
 const STATUS_STYLES = {
   unverified: 'bg-amber-50 text-amber-700 border-amber-200',
