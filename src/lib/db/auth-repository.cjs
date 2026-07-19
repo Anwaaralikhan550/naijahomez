@@ -64,7 +64,7 @@ async function createUserProfile({
        user_id, email, display_name, photo_url, sign_in_provider, email_verified,
        password_hash, password_algo, password_updated_at, auth_migrated_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $7 IS NULL THEN NULL ELSE NOW() END, CASE WHEN $9 THEN NOW() ELSE NULL END)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::text, $8, CASE WHEN $7::text IS NULL THEN NULL ELSE NOW() END, CASE WHEN $9::boolean THEN NOW() ELSE NULL END)
      ON CONFLICT (user_id) DO UPDATE SET
        email = EXCLUDED.email,
        display_name = COALESCE(EXCLUDED.display_name, app_user_profiles.display_name),
