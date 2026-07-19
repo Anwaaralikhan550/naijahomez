@@ -341,7 +341,7 @@ async function main() {
     summary.totals.sourcesSucceeded += 1;
     summary.totals.scraped += sourceResult.scraped;
 
-    if (importService && db) {
+    if (importService) {
       const result = await importService.saveScrapedItems(
         db,
         collectionName,
