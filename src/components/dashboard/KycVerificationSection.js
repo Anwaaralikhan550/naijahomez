@@ -111,8 +111,9 @@ export default function KycVerificationSection() {
     setUploading((prev) => ({ ...prev, [key]: true }));
 
     try {
+      // /api/upload already appends the userId segment itself; don't double it here.
       const folderName = docType === 'id' ? 'kyc/id' : 'kyc/cac';
-      const result = await uploadFile(file, `${folderName}/${user.uid}`);
+      const result = await uploadFile(file, folderName);
       await submitDocumentMetadata(docType, mapUploadResultToDocument(result));
       toast.success(`${docType === 'id' ? 'ID' : 'CAC'} document submitted for review.`);
       await loadKycStatus();
