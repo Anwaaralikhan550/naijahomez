@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
@@ -12,8 +12,17 @@ export default function AuthCompletePage() {
   const router = useRouter();
   const { completeGoogleSession } = useAuth();
   const [error, setError] = useState('');
+  // completeGoogleSession's identity changes whenever AuthProvider re-renders
+  // (it's not memoized, and setUser() inside it triggers exactly that re-render).
+  // Without this guard the effect below re-fires on that re-render, finds the
+  // URL fragment already stripped by its own first run, and overwrites a
+  // successful sign-in with a false "did not complete" error.
+  const startedRef = useRef(false);
 
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
     const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
     const params = new URLSearchParams(hash);
     const accessToken = params.get('accessToken');
@@ -35,7 +44,8 @@ export default function AuthCompletePage() {
       }
       router.replace('/dashboard');
     });
-  }, [completeGoogleSession, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once by design, see startedRef above
+  }, []);
 
   if (error) {
     return (
