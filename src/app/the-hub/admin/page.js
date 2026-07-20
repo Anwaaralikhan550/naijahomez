@@ -41,7 +41,23 @@ export default function HubAdminPage() {
         return;
       }
 
-      // User is authenticated, check admin role
+      // Platform admins (app_user_profiles.isAdmin) always get access, even
+      // with zero community memberships -- the tabs behind this gate (KYC,
+      // support, advertising, agent outreach) are platform-wide concerns,
+      // and every one of their API routes already guards with the real
+      // isAdmin() check (src/lib/auth-middleware.js), not a community role.
+      if (user.isAdmin) {
+        setRoleCheckState({
+          checking: false,
+          isAdmin: true,
+          error: null
+        });
+        return;
+      }
+
+      // Otherwise fall back to the community-admin check, for community
+      // moderators who aren't platform admins but still need some of these
+      // tabs (e.g. member/issue/amenity management scoped to their community).
       try {
         const response = await authenticatedFetch(`/api/hub/communities?type=user&userId=${user.uid}`);
         const result = await response.json();
