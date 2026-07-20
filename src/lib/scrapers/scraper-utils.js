@@ -1,6 +1,41 @@
 const axios = require('axios');
 const { spawn } = require('child_process');
 
+// Global per-host request pacing. The daily scrape used to fire ~100+
+// requests (listing pages + every item's detail page, across rent/sale
+// passes, at 2x concurrency) at a target site within a couple of minutes --
+// a burst pattern that reads as a bot to rate-based WAF rules regardless of
+// which HTTP client sends it. This enforces a real minimum gap between ANY
+// two requests to the same host, no matter how many callers are trying to
+// fetch concurrently or what per-call delayMs they pass -- the same total
+// daily volume goes out, just spread out like an actual visitor browsing
+// would, instead of in a burst.
+const hostRequestQueues = new Map();
+const MIN_HOST_GAP_MS = Number(process.env.SCRAPER_MIN_HOST_GAP_MS || 4000);
+const HOST_GAP_JITTER_MS = Number(process.env.SCRAPER_HOST_GAP_JITTER_MS || 3000);
+
+async function throttleForHost(url) {
+  let host;
+  try {
+    host = new URL(url).host;
+  } catch {
+    host = 'unknown';
+  }
+
+  const previous = hostRequestQueues.get(host) || Promise.resolve(0);
+  const next = previous.then(async (lastRequestAt) => {
+    const gap = MIN_HOST_GAP_MS + Math.floor(Math.random() * HOST_GAP_JITTER_MS);
+    const waitMs = lastRequestAt + gap - Date.now();
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    return Date.now();
+  });
+
+  hostRequestQueues.set(host, next);
+  await next;
+}
+
 // Lazily-launched, reused-across-calls headless browser. curl/axios send a
 // TLS/JS fingerprint that anti-bot services like Cloudflare can distinguish
 // from a real browser; a real (headless) Chromium doesn't have that gap and
@@ -35,6 +70,7 @@ async function closeSharedBrowser() {
 }
 
 async function fetchHtmlWithBrowser(url, options = {}) {
+  await throttleForHost(url);
   const browser = await getSharedBrowser();
   const context = await browser.newContext({
     userAgent: options.userAgent || pickUserAgent(),
@@ -279,6 +315,7 @@ async function fetchHtmlWithRetry(url, options = {}) {
     }
 
     try {
+      await throttleForHost(url);
       const response = await axios.get(url, {
         timeout,
         responseType: 'text',
@@ -326,7 +363,8 @@ async function fetchHtmlWithRetry(url, options = {}) {
   throw new Error(`request failed for ${url}: ${lastError?.message || 'unknown error'}`);
 }
 
-function fetchHtmlWithCurl(url, options = {}) {
+async function fetchHtmlWithCurl(url, options = {}) {
+  await throttleForHost(url);
   return new Promise((resolve, reject) => {
     const timeoutSeconds = Math.max(5, Math.ceil(Number(options.timeoutMs || DEFAULT_TIMEOUT_MS) / 1000));
     const args = [
