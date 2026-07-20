@@ -1,6 +1,68 @@
 const axios = require('axios');
 const { spawn } = require('child_process');
 
+// Lazily-launched, reused-across-calls headless browser. curl/axios send a
+// TLS/JS fingerprint that anti-bot services like Cloudflare can distinguish
+// from a real browser; a real (headless) Chromium doesn't have that gap and
+// executes the site's JS challenge like any other visitor would. Kept as a
+// last-resort fallback (slow: ~2-5s per page) behind the fast axios/curl
+// paths, since most requests don't need it.
+let browserPromise = null;
+
+async function getSharedBrowser() {
+  if (!browserPromise) {
+    browserPromise = (async () => {
+      const { chromium } = require('playwright');
+      return chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] });
+    })().catch((error) => {
+      browserPromise = null;
+      throw error;
+    });
+  }
+  return browserPromise;
+}
+
+async function closeSharedBrowser() {
+  if (!browserPromise) return;
+  try {
+    const browser = await browserPromise;
+    await browser.close();
+  } catch {
+    // best-effort cleanup
+  } finally {
+    browserPromise = null;
+  }
+}
+
+async function fetchHtmlWithBrowser(url, options = {}) {
+  const browser = await getSharedBrowser();
+  const context = await browser.newContext({
+    userAgent: options.userAgent || pickUserAgent(),
+    viewport: { width: 1366, height: 768 },
+    locale: 'en-US',
+    extraHTTPHeaders: {
+      'Accept-Language': 'en-US,en;q=0.9'
+    }
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: Number(options.timeoutMs || DEFAULT_TIMEOUT_MS)
+    });
+    // Cloudflare's JS challenge (when present) resolves and redirects a few
+    // seconds after load -- give it room, then read whatever DOM settled on.
+    await page.waitForTimeout(4000);
+    const html = await page.content();
+    if (/Attention Required|Just a moment|challenge-platform/i.test(html.slice(0, 5000)) && !/property-list|property-listing/i.test(html)) {
+      throw new Error('browser fallback received an anti-bot challenge page');
+    }
+    return html;
+  } finally {
+    await context.close();
+  }
+}
+
 const DEFAULT_TIMEOUT_MS = 25000;
 const DEFAULT_RETRIES = 2;
 const DEFAULT_MAX_AGE_DAYS = 60;
@@ -243,6 +305,13 @@ async function fetchHtmlWithRetry(url, options = {}) {
         } catch (curlError) {
           lastError = curlError;
         }
+        if (options.browserFallback !== false && process.env.SCRAPER_BROWSER_FALLBACK !== 'false') {
+          try {
+            return await fetchHtmlWithBrowser(url, options);
+          } catch (browserError) {
+            lastError = browserError;
+          }
+        }
       }
       // 403/429 get a real retry with backoff (bot-protection blocks are often
       // intermittent/probabilistic, not permanent -- worth trying again with
@@ -397,6 +466,8 @@ module.exports = {
   extractPhoneNumbers,
   fetchHtmlWithRetry,
   fetchHtmlWithCurl,
+  fetchHtmlWithBrowser,
+  closeSharedBrowser,
   firstAttr,
   firstText,
   isUsablePrice,

@@ -364,11 +364,18 @@ async function main() {
   if (!summary.success) process.exitCode = 1;
 }
 
-main().catch((error) => {
-  console.log(JSON.stringify({
-    success: false,
-    error: error.message,
-    finishedAt: new Date().toISOString()
-  }, null, 2));
-  process.exit(1);
-});
+main()
+  .catch((error) => {
+    console.log(JSON.stringify({
+      success: false,
+      error: error.message,
+      finishedAt: new Date().toISOString()
+    }, null, 2));
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    // The shared headless browser (see scraper-utils.js fetchHtmlWithBrowser)
+    // keeps the event loop alive if left open.
+    await require('../src/lib/scrapers/scraper-utils').closeSharedBrowser().catch(() => {});
+    process.exit(process.exitCode || 0);
+  });
