@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 ﻿import { NextResponse } from 'next/server';
+import { logEvent } from '@/lib/db/outreach-events-repository.cjs';
 
 function isQuotaExceededError(error) {
   const message = String(error?.message || '').toLowerCase();
@@ -17,6 +18,16 @@ export async function GET(request) {
 
     const result = await validateClaimToken({ rawToken: token });
     const status = result.valid ? 200 : 400;
+
+    if (result.valid) {
+      logEvent({
+        claimTokenId: result.tokenId,
+        advertId: result.advertId,
+        collectionName: result.collectionName,
+        eventType: 'claim_page_reached'
+      }).catch(() => null);
+    }
+
     return NextResponse.json(result, { status });
   } catch (error) {
     if (isQuotaExceededError(error)) {

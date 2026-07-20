@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 ﻿import { NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-middleware';
+import { logEvent } from '@/lib/db/outreach-events-repository.cjs';
 
 export async function POST(request) {
   try {
@@ -23,6 +24,12 @@ export async function POST(request) {
       userId: authResult.userId,
       advertIds
     });
+
+    logEvent({
+      batchTokenId: result.batchId,
+      eventType: 'ad_claimed',
+      metadata: { claimedByUserId: authResult.userId, claimedAdvertIds: result.claimedAdvertIds }
+    }).catch(() => null);
 
     return NextResponse.json({
       success: true,

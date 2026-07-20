@@ -1,6 +1,7 @@
 const { generateBatchListingClaimMessage, generateListingClaimMessage } = require('./message-template');
 const { sendWhatsAppTextMessage } = require('../whatsapp/evolution-client');
 const { getPool, query } = require('../db/postgres-client.cjs');
+const { logEvent } = require('../db/outreach-events-repository.cjs');
 const {
   countSentMessagesSince,
   createBatchClaimToken,
@@ -299,11 +300,27 @@ async function runQueueItem(queueId, { dryRun = false } = {}) {
       providerResponse?.id ||
       null;
 
+    const sentClaimTokenId = group.items.length > 1 ? null : claimToken.id;
+    const sentBatchTokenId = group.items.length > 1 ? claimToken.id : null;
+
     await markQueueGroupSent(group.rows, {
-      claimTokenId: group.items.length > 1 ? null : claimToken.id,
-      batchTokenId: group.items.length > 1 ? claimToken.id : null,
+      claimTokenId: sentClaimTokenId,
+      batchTokenId: sentBatchTokenId,
       providerMessageId
     });
+
+    await Promise.all(
+      group.rows.map((row) => logEvent({
+        queueId: row.id,
+        claimTokenId: sentClaimTokenId,
+        batchTokenId: sentBatchTokenId,
+        advertId: row.advert_id,
+        collectionName: row.collection_name,
+        phone,
+        eventType: 'sent',
+        metadata: { providerMessageId }
+      }))
+    );
 
     if (group.items.length > 1) {
       await query(

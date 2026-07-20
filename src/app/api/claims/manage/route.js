@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db/postgres-client.cjs';
 import { hashToken, toDate } from '@/lib/automation/onboarding-queue-adapter.cjs';
 import { rowToListing } from '@/lib/db/listing-repository.cjs';
+import { logEvent } from '@/lib/db/outreach-events-repository.cjs';
 
 const errorResponse = (message, code, status = 400) =>
   NextResponse.json({ success: false, valid: false, error: message, code }, { status });
@@ -77,6 +78,13 @@ export async function GET(request) {
       return errorResponse('This advert is no longer available.', 'ADVERT_NOT_FOUND', 404);
     }
 
+    logEvent({
+      claimTokenId: resolved.token.id,
+      advertId: resolved.token.advert_id,
+      collectionName: resolved.token.collection_name,
+      eventType: 'link_opened'
+    }).catch(() => null);
+
     return NextResponse.json({
       success: true,
       valid: true,
@@ -136,6 +144,13 @@ export async function DELETE(request) {
        WHERE collection_name = $1 AND advert_id = $2`,
       [resolved.token.collection_name, resolved.token.advert_id]
     ).catch(() => null);
+
+    logEvent({
+      claimTokenId: resolved.token.id,
+      advertId: resolved.token.advert_id,
+      collectionName: resolved.token.collection_name,
+      eventType: 'ad_deleted'
+    }).catch(() => null);
 
     return NextResponse.json({
       success: true,

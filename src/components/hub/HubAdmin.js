@@ -37,6 +37,7 @@ import ListingReportManagement from './admin/ListingReportManagement';
 import ContentAutomationDashboard from './admin/ContentAutomationDashboard';
 import AdvertisingManagement from './admin/AdvertisingManagement';
 import SupportManagement from './admin/SupportManagement';
+import AgentOutreachMonitor from './admin/AgentOutreachMonitor';
 
 const DEFAULT_STATS = {
   totalMembers: 0,
@@ -61,6 +62,7 @@ const ADMIN_TABS = [
   { id: 'access-codes', label: 'Access Codes', icon: Settings },
   { id: 'content-automation', label: 'Content Automation', icon: FileText },
   { id: 'advertising', label: 'Advertising', icon: Megaphone },
+  { id: 'agent-outreach', label: 'Agent Outreach', icon: Send },
   { id: 'support', label: 'Support', icon: MessageCircle },
   { id: 'market-insights', label: 'Market Insights', icon: Eye },
   { id: 'reports', label: 'Reports', icon: AlertTriangle },
@@ -558,6 +560,7 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
       case 'access-codes': return renderAccessCodes();
       case 'content-automation': return <ContentAutomationDashboard />;
       case 'advertising': return <AdvertisingManagement />;
+      case 'agent-outreach': return <AgentOutreachMonitor />;
       case 'support': return <SupportManagement />;
       case 'market-insights': return renderMarketInsights();
       case 'reports': return renderReports();

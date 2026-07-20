@@ -12,9 +12,7 @@ ${actionUrl}
 
 From there you can view the advert, delete it, or claim it without logging in.
 
-Welcome to Nijahomzs!
-
-Reply STOP to opt out.`;
+Welcome to Nijahomzs!`;
 }
 
 function generateBatchListingClaimMessage({ count = 1, claimUrl }) {
@@ -27,9 +25,7 @@ We found ${safeCount} of your ${advertText} now listed on Nijahomzs.
 You can claim ${safeCount === 1 ? 'it' : 'them'}, edit details, and keep ${safeCount === 1 ? 'this listing' : 'these listings'} free here:
 ${claimUrl}
 
-Welcome to Nijahomzs!
-
-Reply STOP to opt out.`;
+Welcome to Nijahomzs!`;
 }
 
 module.exports = {

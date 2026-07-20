@@ -80,10 +80,6 @@ function extractText(payload) {
     .slice(0, 3000);
 }
 
-function isStopMessage(text) {
-  return /\bstop\b/i.test(text || '');
-}
-
 function isOutgoingMessage(payload) {
   return Boolean(
     payload?.data?.key?.fromMe ||
@@ -108,22 +104,6 @@ export async function POST(request) {
 
     if (!phone || !text) {
       return NextResponse.json({ success: true, ignored: true, reason: 'missing_phone_or_text' });
-    }
-
-    if (isStopMessage(text)) {
-      const onboardingModule = await import('@/lib/automation/onboarding-queue-adapter.cjs');
-      const suppressNumber =
-        onboardingModule.suppressNumber ||
-        onboardingModule.default?.suppressNumber;
-
-      const result = await suppressNumber({
-        phone,
-        source: 'evolution_webhook',
-        reason: 'STOP',
-        rawPayload: payload
-      });
-
-      return NextResponse.json({ success: true, suppressed: true, ...result });
     }
 
     const supportModule = await import('@/lib/support/support-service');

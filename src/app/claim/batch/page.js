@@ -72,6 +72,11 @@ function BatchClaimContent() {
     try {
       sessionStorage.setItem('pendingBatchClaimToken', token);
     } catch {}
+    fetch('/api/claims/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, eventType: 'login_required' })
+    }).catch(() => {});
     const redirect = `/claim/batch?token=${encodeURIComponent(token)}`;
     router.replace(`/login?redirect=${encodeURIComponent(redirect)}`);
   }, [authLoading, router, status, token, user]);

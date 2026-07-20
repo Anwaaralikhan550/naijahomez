@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 ﻿import { NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-middleware';
+import { logEvent } from '@/lib/db/outreach-events-repository.cjs';
 
 export async function POST(request) {
   try {
@@ -43,6 +44,13 @@ export async function POST(request) {
         }).catch(() => null)
       ));
     }
+
+    logEvent({
+      advertId: result.advertId,
+      collectionName: result.collectionName,
+      eventType: 'ad_claimed',
+      metadata: { claimedByUserId: authResult.userId }
+    }).catch(() => null);
 
     return NextResponse.json({
       success: true,
