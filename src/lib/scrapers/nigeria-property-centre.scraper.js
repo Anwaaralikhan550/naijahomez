@@ -2,8 +2,6 @@ const {
   collectImageUrls,
   extractPhoneNumbers,
   fetchHtmlWithRetry,
-  firstAttr,
-  firstText,
   isUsablePrice,
   loadCheerio,
   mapLimit,
@@ -57,31 +55,73 @@ function withPageNumber(url, pageNumber) {
   }
 }
 
+// The site's frontend markup (CSS classes) is a redesign risk -- it's been
+// rebuilt from semantic class names (.property-list, .property-price, ...)
+// to generic Tailwind utility classes at least once already (2026-07). JSON-LD
+// structured data is what the site exposes for Google/SEO, which is a much
+// stronger stability guarantee than any CSS class name, so it's the primary
+// extraction source here. Regex-against-body-text (phone numbers, bed/bath
+// counts) and URL-path parsing (location) are the secondary sources, since
+// those don't depend on markup/class names either. CSS selectors are kept
+// only as a last-resort fallback, not the primary path.
+function parseJsonLd($, matchType) {
+  const blocks = [];
+  $('script[type="application/ld+json"]').each((_, node) => {
+    try {
+      const parsed = JSON.parse($(node).html() || 'null');
+      blocks.push(parsed);
+    } catch {
+      // Malformed JSON-LD block -- skip it, other blocks may still be usable.
+    }
+  });
+
+  return blocks.find((block) => {
+    if (!block) return false;
+    const type = block['@type'];
+    return type === matchType || (Array.isArray(type) && type.includes(matchType));
+  }) || null;
+}
+
 function normalizeNpcPrice(value) {
   const text = normalizeText(value);
   const matches = text.match(/₦\s*[\d,]+(?:\s*per\s+[a-z/ ]+)?/gi);
   return matches?.[0] ? normalizeText(matches[0]) : text;
 }
 
+function extractFeatureCount(text, pattern) {
+  const match = normalizeText(text).match(pattern);
+  if (!match) return undefined;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+// Location isn't in the JSON-LD RealEstateListing block, but the URL path
+// itself encodes it reliably: /for-rent/{type}/{subtype}/{state}/{area}/{id}-{slug}
+// This is baked into the site's routing/SEO structure, so it's about as
+// stable a source as JSON-LD -- much more so than a CSS-selected element.
+function extractLocationFromUrl(sourceUrl) {
+  try {
+    const segments = new URL(sourceUrl).pathname.split('/').filter(Boolean);
+    // segments: ['for-rent', '<type>', '<subtype>', '<state>', '<area>', '<id-slug>']
+    // or sometimes shorter (no subtype). The last segment is always the id-slug,
+    // and the two immediately before it (when present) are area/state.
+    const withoutIdSlug = segments.slice(0, -1);
+    const locationParts = withoutIdSlug.slice(-2).map((part) =>
+      part.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+    );
+    return locationParts.filter(Boolean).reverse().join(', ');
+  } catch {
+    return '';
+  }
+}
+
 function findDetailDescription($, metaDescription = '') {
   const candidates = [];
-  const selectors = [
-    '.description',
-    '.description-text',
-    '.property-description',
-    '.wp-block-property-description',
-    '[class*="description"]',
-    '.content p',
-    'article p',
-    'p'
-  ];
+  const selectors = ['.description', '.description-text', '.property-description', '[class*="description"]', 'article p', 'p'];
 
   selectors.forEach((selector) => {
     $(selector).each((_, node) => {
-      const text = stripHtml($(node).text())
-        .replace(/^description\s*/i, '')
-        .trim();
-
+      const text = stripHtml($(node).text()).replace(/^description\s*/i, '').trim();
       if (!text || text.length < 80) return;
       if (/^(interested in this property|share this property|report this listing)/i.test(text)) return;
       candidates.push(text);
@@ -95,117 +135,42 @@ function findDetailDescription($, metaDescription = '') {
   return best || stripHtml(metaDescription);
 }
 
-function parseFeatureNumber(value) {
-  const match = normalizeText(value).replace(/,/g, '').match(/(\d+(?:\.\d+)?)/);
-  if (!match) return undefined;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function parseTitleFeature(title, labelPattern) {
-  const match = normalizeText(title).match(labelPattern);
-  return match ? parseFeatureNumber(match[1]) : undefined;
-}
-
-function parseSquareMetersFromText(...values) {
-  const text = values.map((value) => normalizeText(value)).filter(Boolean).join(' ');
-  if (!text) return undefined;
-
-  const patterns = [
-    /(?:total\s+area|land\s+size|plot\s+size|floor\s+area|built[-\s]?up\s+area|property\s+size|area|size)\s*[:\-]?\s*(\d[\d,]*(?:\.\d+)?)\s*(?:sqm|sq\.?\s*m|m2|m²|square\s*met(?:er|re)s?)/i,
-    /(\d[\d,]*(?:\.\d+)?)\s*(?:sqm|sq\.?\s*m|m2|m²|square\s*met(?:er|re)s?)\s*(?:total\s+area|land\s+size|plot\s+size|floor\s+area|built[-\s]?up\s+area|property\s+size|area|size)?/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    const value = parseFeatureNumber(match?.[1]);
-    if (value) return value;
-  }
-
-  return undefined;
-}
-
-function collectStructuredFeatures($) {
-  const features = {};
-
-  $('[itemprop="additionalProperty"], .aux-info li').each((_, node) => {
-    const root = $(node);
-    const name = normalizeText(
-      root.find('[itemprop="name"]').first().text() ||
-      root.find('.name').first().text() ||
-      root.text().replace(root.find('[itemprop="value"]').first().text(), '')
-    ).toLowerCase();
-    const valueText = normalizeText(root.find('[itemprop="value"]').first().text());
-    const unitText = normalizeText(root.find('[itemprop="unitText"]').first().text()).toLowerCase();
-    const value = parseFeatureNumber(valueText);
-
-    if (!name || !value) return;
-
-    if (name.includes('bedroom')) features.bedrooms = value;
-    if (name.includes('bathroom')) features.bathrooms = value;
-    if (name.includes('toilet')) features.toilets = value;
-    if (name.includes('parking')) features.parkingSpaces = value;
-    if (name.includes('area') || name.includes('size') || unitText.includes('sqm')) {
-      features.squareMeters = value;
-      features.sizeUnit = unitText || 'sqm';
-    }
-  });
-
-  return features;
-}
-
 function parseDetailPage(html, sourceUrl) {
   const cheerio = loadCheerio();
   const $ = cheerio.load(html);
   const bodyText = normalizeText($('body').text());
   const metaDescription = normalizeText($('meta[name="description"]').attr('content'));
   const pageTitle = normalizeText($('title').first().text());
-  const title = normalizeText($('h1').first().text() || pageTitle);
-  const description = findDetailDescription($, metaDescription);
-  const rawPrice = firstText($, $.root(), [
-    '.price',
-    '.property-price',
-    '.price-label',
-    '.pull-right.price',
-    '[class*="price"]'
-  ]);
-  const combinedPrice = normalizeText($('span.price, span.period, .property-price, .price-label').text());
-  const price = normalizeNpcPrice(combinedPrice && combinedPrice !== '₦' ? combinedPrice : rawPrice);
-  const location = firstText($, $.root(), [
-    '.property-location',
-    '.location',
-    '.address',
-    '.pull-left.location',
-    '[class*="location"]'
-  ]);
-  const agentName = firstText($, $.root(), [
-    '.agent-name',
-    '.company-name',
-    '[class*="agent"] h4',
-    '[class*="agent"] [class*="name"]'
-  ]);
+
+  const listing = parseJsonLd($, 'RealEstateListing') || {};
+  const title = normalizeText(listing.name) || normalizeText($('h1').first().text()) || pageTitle;
+  const description = normalizeText(listing.description) || findDetailDescription($, metaDescription);
+  const price = listing.offers?.price
+    ? normalizeNpcPrice(`₦${Number(listing.offers.price).toLocaleString('en-NG')}`)
+    : normalizeNpcPrice($('body').find('[class*="price"]').first().text());
+  const location = extractLocationFromUrl(sourceUrl) || normalizeText($('[class*="location"], address').first().text());
   const phoneNumbers = extractPhoneNumbers(bodyText);
-  const imageUrls = collectImageUrls($, $.root(), sourceUrl);
-  const structuredFeatures = collectStructuredFeatures($);
-  const bedrooms = structuredFeatures.bedrooms || parseTitleFeature(pageTitle, /(\d+(?:\.\d+)?)\s*beds?\b/i);
-  const bathrooms = structuredFeatures.bathrooms || parseTitleFeature(pageTitle, /(\d+(?:\.\d+)?)\s*baths?\b/i);
-  const squareMeters = structuredFeatures.squareMeters ||
-    parseSquareMetersFromText(title, pageTitle, metaDescription, description);
+
+  const jsonLdImages = [listing.image].flat().filter(Boolean).map((url) => toAbsoluteUrl(url, sourceUrl));
+  const scannedImages = collectImageUrls($, $.root(), sourceUrl);
+  const imageUrls = Array.from(new Set([...jsonLdImages, ...scannedImages]));
+
+  const bedrooms = extractFeatureCount(bodyText, /(\d+)\s*beds?\b/i) || extractFeatureCount(pageTitle, /(\d+(?:\.\d+)?)\s*beds?\b/i);
+  const bathrooms = extractFeatureCount(bodyText, /(\d+)\s*baths?\b/i) || extractFeatureCount(pageTitle, /(\d+(?:\.\d+)?)\s*baths?\b/i);
+  const toilets = extractFeatureCount(bodyText, /(\d+)\s*toilets?\b/i);
 
   return {
     title,
     description,
-    price,
+    price: price || 'Price on request',
     location,
-    agentName,
+    agentName: '',
     phoneNumbers,
     imageUrls,
     bedrooms,
     bathrooms,
-    toilets: structuredFeatures.toilets,
-    parkingSpaces: structuredFeatures.parkingSpaces,
-    squareMeters,
-    sizeUnit: structuredFeatures.sizeUnit || (squareMeters ? 'sqm' : undefined)
+    toilets,
+    datePosted: listing.datePosted || null
   };
 }
 
@@ -236,14 +201,13 @@ async function maybeEnrichDetails(items, options = {}) {
         bedrooms: detail.bedrooms || item.bedrooms,
         bathrooms: detail.bathrooms || item.bathrooms,
         toilets: detail.toilets || item.toilets,
-        parkingSpaces: detail.parkingSpaces || item.parkingSpaces,
-        squareMeters: detail.squareMeters || item.squareMeters,
-        sizeUnit: detail.sizeUnit || item.sizeUnit,
         agentName: detail.agentName || item.agentName,
         phoneNumbers,
         phoneNumber: phoneNumbers[0] || item.phoneNumber,
         whatsappNumber: phoneNumbers[0] || item.whatsappNumber,
         contactPhone: phoneNumbers[0] || item.contactPhone,
+        postedAt: detail.datePosted || item.postedAt,
+        postedAtConfidence: detail.datePosted ? 'explicit' : item.postedAtConfidence,
         sourceMetadata: {
           ...(item.sourceMetadata || {}),
           detailFetched: true
@@ -293,103 +257,65 @@ async function scrapeNigeriaPropertyCentre(options = {}) {
     });
 
     const $ = cheerio.load(html);
-    const cards = $('.property-list, .property-listing, .single-room-text, .wp-block.property-list, .row.property-list');
-    if (!cards.length) break;
+    const itemList = parseJsonLd($, 'ItemList');
+    const listItems = Array.isArray(itemList?.itemListElement) ? itemList.itemListElement : [];
+    if (!listItems.length) break;
 
-    cards.each((_, card) => {
-      if (results.length >= limit) return false;
+    listItems.forEach((listItem) => {
+      if (results.length >= limit) return;
 
-      const sourceUrl = toAbsoluteUrl(firstAttr($, card, ['h4 a', 'h3 a', '.property-title a', 'a[href]'], 'href'), BASE_URL);
-      if (!sourceUrl || seenSourceUrls.has(sourceUrl)) return;
+      const sourceUrl = toAbsoluteUrl(listItem?.url, BASE_URL);
+      const title = normalizeText(listItem?.name);
+      if (!sourceUrl || !title || seenSourceUrls.has(sourceUrl)) return;
       seenSourceUrls.add(sourceUrl);
-    const linkTitle = normalizeText(firstAttr($, card, ['a[href]'], 'title'));
-    const imageAlt = normalizeText(firstAttr($, card, ['img'], 'alt'));
-    const title = firstText($, card, [
-      'h4 a',
-      'h3 a',
-      '.property-title a',
-      '.content h3 a',
-      '[class*="title"]'
-    ]) || linkTitle || imageAlt;
-    const description = firstText($, card, [
-      '.description',
-      '.description-text',
-      '.summary',
-      '.property-description',
-      'p'
-    ]) || title;
-    const rawPrice = firstText($, card, [
-      '.price',
-      '.property-price',
-      '.price-label',
-      '.pull-right.price',
-      '[class*="price"]'
-    ]);
-    const combinedPrice = normalizeText($(card).find('span.price, span.period, .property-price, .price-label').text());
-    const price = normalizeNpcPrice(combinedPrice && combinedPrice !== '₦' ? combinedPrice : rawPrice);
-    const location = firstText($, card, [
-      'address',
-      '.property-location',
-      '.location',
-      '.address',
-      '.pull-left.location',
-      '[class*="location"]'
-    ]);
-    const postedRaw = normalizeText($(card).find('span.added-on, .date-added, .property-date, time').first().text()) || firstText($, card, [
-      '.added-on',
-      '.date-added',
-      '.property-date',
-      '.added',
-      'time',
-      '[class*="date"]'
-    ]);
-    const posted = resolvePostedAt(postedRaw, { maxAgeDays });
-    if (!posted.isRecent) return;
 
-    const imageUrls = collectImageUrls($, card, BASE_URL);
-    const cardText = normalizeText($(card).text());
-    const phoneNumbers = extractPhoneNumbers(`${title} ${description} ${cardText}`);
-    const agentName = normalizeText($(card).find('.marketed-by').text()).replace(/\+?234|0\d[\d\s-]{8,}/g, '').trim();
-
-    if (!title || !sourceUrl) return;
-
-    results.push({
-      title,
-      description,
-      price: price || 'Price on request',
-      priceNumeric: parsePriceNumeric(price),
-      imageUrls,
-      location: location || 'Nigeria',
-      source: SOURCE_TAG,
-      category,
-      sourceUrl,
-      postedAt: posted.date.toISOString(),
-      postedAtConfidence: posted.confidence,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      status: 'pending-review',
-      listingType: requestedListingType,
-      isScraped: true,
-      dataSource: 'scraped',
-      agentName,
-      phoneNumbers,
-      phoneNumber: phoneNumbers[0] || '',
-      whatsappNumber: phoneNumbers[0] || '',
-      contactPhone: phoneNumbers[0] || '',
-      sourceMetadata: {
-        sourceName: SOURCE_NAME,
-        targetUrl,
-        pageUrl,
-        pageNumber,
-        scrapedAt: nowIso,
-        detailFetched: false
-      }
-    });
+      // Full recency + price/image enrichment happens in maybeEnrichDetails
+      // (fetches this listing's own detail page, which has datePosted via
+      // JSON-LD) -- the listing page's JSON-LD ItemList doesn't carry dates,
+      // so a placeholder "recent" is used here and corrected after detail
+      // fetch. When --detail isn't passed (rare -- production always uses
+      // it), this falls back to treating everything as recent.
+      results.push({
+        title,
+        description: title,
+        price: 'Price on request',
+        priceNumeric: undefined,
+        imageUrls: [],
+        location: extractLocationFromUrl(sourceUrl) || 'Nigeria',
+        source: SOURCE_TAG,
+        category,
+        sourceUrl,
+        postedAt: nowIso,
+        postedAtConfidence: 'fallback_now',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        status: 'pending-review',
+        listingType: requestedListingType,
+        isScraped: true,
+        dataSource: 'scraped',
+        agentName: '',
+        phoneNumbers: [],
+        phoneNumber: '',
+        whatsappNumber: '',
+        contactPhone: '',
+        sourceMetadata: {
+          sourceName: SOURCE_NAME,
+          targetUrl,
+          pageUrl,
+          pageNumber,
+          scrapedAt: nowIso,
+          detailFetched: false
+        }
+      });
     });
   }
 
   const enriched = await maybeEnrichDetails(results, options);
   return enriched
+    .filter((item) => {
+      const posted = resolvePostedAt(item.postedAt, { maxAgeDays });
+      return posted.isRecent;
+    })
     .map((item) => ({
       ...item,
       imageUrls: normalizeImageUrls(item.imageUrls, BASE_URL),
