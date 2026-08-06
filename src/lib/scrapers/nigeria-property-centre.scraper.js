@@ -135,6 +135,20 @@ function findDetailDescription($, metaDescription = '') {
   return best || stripHtml(metaDescription);
 }
 
+// The detail page's raw HTML includes images from more than just this
+// listing: the agent's own profile/branding image (path segment
+// /properties/profiles/), plus thumbnails for unrelated "similar
+// properties" the site shows elsewhere on the same page (each tagged with
+// a DIFFERENT listing id in its own path). Naively scanning the whole page
+// for <img> tags pulls in all of that. Every genuine photo for a given
+// listing is served under a path containing that listing's own numeric id
+// (e.g. /properties/images/{id}/...), so filtering on that id is what
+// actually isolates this listing's real photos.
+function extractListingId(sourceUrl) {
+  const match = String(sourceUrl || '').match(/(\d+)-[^/]*$/);
+  return match ? match[1] : null;
+}
+
 function parseDetailPage(html, sourceUrl) {
   const cheerio = loadCheerio();
   const $ = cheerio.load(html);
@@ -151,9 +165,14 @@ function parseDetailPage(html, sourceUrl) {
   const location = extractLocationFromUrl(sourceUrl) || normalizeText($('[class*="location"], address').first().text());
   const phoneNumbers = extractPhoneNumbers(bodyText);
 
+  const listingId = extractListingId(sourceUrl);
   const jsonLdImages = [listing.image].flat().filter(Boolean).map((url) => toAbsoluteUrl(url, sourceUrl));
   const scannedImages = collectImageUrls($, $.root(), sourceUrl);
-  const imageUrls = Array.from(new Set([...jsonLdImages, ...scannedImages]));
+  const ownImages = (listingId
+    ? [...jsonLdImages, ...scannedImages].filter((url) => url.includes(`/${listingId}/`))
+    : [...jsonLdImages, ...scannedImages]
+  ).filter((url) => !/\/properties\/profiles\//i.test(url));
+  const imageUrls = Array.from(new Set(ownImages));
 
   const bedrooms = extractFeatureCount(bodyText, /(\d+)\s*beds?\b/i) || extractFeatureCount(pageTitle, /(\d+(?:\.\d+)?)\s*beds?\b/i);
   const bathrooms = extractFeatureCount(bodyText, /(\d+)\s*baths?\b/i) || extractFeatureCount(pageTitle, /(\d+(?:\.\d+)?)\s*baths?\b/i);

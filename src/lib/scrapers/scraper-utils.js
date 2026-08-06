@@ -147,7 +147,7 @@ function normalizeImageUrls(value, baseUrl) {
         .map((item) => normalizeText(item))
         .map((item) => toAbsoluteUrl(item, baseUrl))
         .filter(Boolean)
-        .filter((url) => !/blank|placeholder|transparent|sprite|logo|badge|verified-agent|youtube-thumbnail|partners\/|download-on-the|app-store|google\.com\/intl|\.svg(?:[?#]|$)|\/properties\/branded\//i.test(url))
+        .filter((url) => !/blank|placeholder|transparent|sprite|logo|badge|verified-agent|youtube-thumbnail|partners\/|download-on-the|app-store|google\.com\/intl|\.svg(?:[?#]|$)|\/properties\/branded\/|\/properties\/profiles\//i.test(url))
     )
   ).slice(0, 12);
 }
