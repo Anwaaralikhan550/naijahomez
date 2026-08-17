@@ -149,6 +149,36 @@ function extractListingId(sourceUrl) {
   return match ? match[1] : null;
 }
 
+// The site's photo carousel/gallery isn't rendered as plain <img> tags in
+// the server response -- it's a PHP-side data structure (array of
+// {full, thumb, alt} objects) embedded inside an Alpine.js component
+// attribute, JSON-encoded and then HTML-attribute-escaped a second time
+// (quotes become the literal 6-character sequence ", forward slashes
+// come out preceded by a variable number of literal backslashes rather
+// than the single backslash a single JSON.stringify would produce). This
+// is genuinely present in the plain HTTP response though -- confirmed by
+// diffing a curl-fetched response against a real browser's rendered DOM,
+// same bytes -- so it doesn't need JS execution to reach, just a decoder
+// that tolerates the double-escaping instead of a plain URL regex (which
+// never matches the escaped slashes) or a strict JSON.parse (which chokes
+// on the same). This is what actually contains the *complete* photo set
+// for a listing; collectImageUrls()'s plain <img>/data-src scan only ever
+// finds the handful of images unrelated Alpine components happen to
+// reference elsewhere on the page (agent branding, "similar properties").
+function extractGalleryImages(html) {
+  const BS = String.fromCharCode(92);
+  const BSBS = BS + BS;
+  const pattern = `${BSBS}*u0022full${BSBS}*u0022:${BSBS}*u0022(.*?)${BSBS}*u0022`;
+  const regex = new RegExp(pattern, 'g');
+  const urls = new Set();
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    const cleaned = match[1].split(BS).join('');
+    if (cleaned) urls.add(cleaned);
+  }
+  return Array.from(urls);
+}
+
 function parseDetailPage(html, sourceUrl) {
   const cheerio = loadCheerio();
   const $ = cheerio.load(html);
@@ -166,13 +196,18 @@ function parseDetailPage(html, sourceUrl) {
   const phoneNumbers = extractPhoneNumbers(bodyText);
 
   const listingId = extractListingId(sourceUrl);
+  const galleryImages = extractGalleryImages(html).map((url) => toAbsoluteUrl(url, sourceUrl));
   const jsonLdImages = [listing.image].flat().filter(Boolean).map((url) => toAbsoluteUrl(url, sourceUrl));
   const scannedImages = collectImageUrls($, $.root(), sourceUrl);
-  const ownImages = (listingId
-    ? [...jsonLdImages, ...scannedImages].filter((url) => url.includes(`/${listingId}/`))
-    : [...jsonLdImages, ...scannedImages]
-  ).filter((url) => !/\/properties\/profiles\//i.test(url));
-  const imageUrls = Array.from(new Set(ownImages));
+  // Gallery data is the real, complete photo set; JSON-LD/scanned images
+  // are a fallback only for the (currently unseen, but cheap to keep)
+  // case where a listing has no gallery blob. Both fallback sources still
+  // get id-filtered since, unlike the gallery blob, they're not scoped to
+  // this listing by construction.
+  const fallbackOwnImages = [...jsonLdImages, ...scannedImages]
+    .filter((url) => (listingId ? url.includes(`/${listingId}/`) : true))
+    .filter((url) => !/\/properties\/profiles\//i.test(url));
+  const imageUrls = Array.from(new Set(galleryImages.length ? galleryImages : fallbackOwnImages));
 
   const bedrooms = extractFeatureCount(bodyText, /(\d+)\s*beds?\b/i) || extractFeatureCount(pageTitle, /(\d+(?:\.\d+)?)\s*beds?\b/i);
   const bathrooms = extractFeatureCount(bodyText, /(\d+)\s*baths?\b/i) || extractFeatureCount(pageTitle, /(\d+(?:\.\d+)?)\s*baths?\b/i);
