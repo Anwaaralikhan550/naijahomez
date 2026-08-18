@@ -121,15 +121,33 @@ async function getAgentFunnel({ limit = 100, phone = null, status = null } = {})
 
 async function getOutreachFunnelSummary() {
   const result = await query(
+    // The open check has to mirror the per-row matching in getAgentFunnel:
+    // batch events carry batch_token_id rather than queue_id, so a plain
+    // e.queue_id = oq.id join reports zero opens for every batch recipient.
+    // EXISTS also avoids the row multiplication a LEFT JOIN caused when one
+    // queue row had several link_opened events, which inflated every other
+    // count in this query.
     `SELECT
        COUNT(*) FILTER (WHERE oq.sent_at IS NOT NULL AND oq.sent_at >= NOW() - INTERVAL '1 day') AS sent_today,
        COUNT(*) FILTER (WHERE oq.sent_at IS NOT NULL AND oq.sent_at >= NOW() - INTERVAL '7 days') AS sent_week,
        COUNT(*) FILTER (WHERE oq.sent_at IS NOT NULL) AS sent_total,
        COUNT(*) FILTER (WHERE oq.status = 'claimed') AS claimed_total,
        COUNT(*) FILTER (WHERE oq.status = 'deleted') AS deleted_total,
-       COUNT(DISTINCT e.queue_id) FILTER (WHERE e.event_type = 'link_opened') AS opened_total
-     FROM onboarding_outreach_queue oq
-     LEFT JOIN outreach_funnel_events e ON e.queue_id = oq.id AND e.event_type = 'link_opened'`
+       COUNT(*) FILTER (WHERE EXISTS (
+         SELECT 1 FROM outreach_funnel_events e
+         WHERE e.event_type = 'link_opened'
+           AND (e.queue_id = oq.id
+                OR (oq.claim_token_id IS NOT NULL AND e.claim_token_id = oq.claim_token_id)
+                OR (oq.batch_token_id IS NOT NULL AND e.batch_token_id = oq.batch_token_id))
+       )) AS opened_total,
+       COUNT(*) FILTER (WHERE EXISTS (
+         SELECT 1 FROM outreach_funnel_events e
+         WHERE e.event_type = 'reminder_sent'
+           AND (e.queue_id = oq.id
+                OR (oq.claim_token_id IS NOT NULL AND e.claim_token_id = oq.claim_token_id)
+                OR (oq.batch_token_id IS NOT NULL AND e.batch_token_id = oq.batch_token_id))
+       )) AS reminded_total
+     FROM onboarding_outreach_queue oq`
   );
 
   const row = result.rows[0] || {};
@@ -145,6 +163,7 @@ async function getOutreachFunnelSummary() {
     openedTotal,
     claimedTotal,
     deletedTotal,
+    remindedTotal: Number(row.reminded_total) || 0,
     openRatePct: sentTotal ? Number(((openedTotal / sentTotal) * 100).toFixed(1)) : 0,
     claimRatePct: sentTotal ? Number(((claimedTotal / sentTotal) * 100).toFixed(1)) : 0,
     deleteRatePct: sentTotal ? Number(((deletedTotal / sentTotal) * 100).toFixed(1)) : 0

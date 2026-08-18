@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Loader2, MessageCircle, MousePointerClick, RefreshCw, Send, Trash2, UserCheck } from 'lucide-react';
+import { BellRing, CheckCircle2, Loader2, MessageCircle, MousePointerClick, RefreshCw, Send, Trash2, UserCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authenticatedFetch } from '@/services/api';
 
@@ -87,12 +87,13 @@ export default function AgentOutreachMonitor() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         {[
           ['Sent (7 days)', summary?.sentWeek ?? 0, Send, 'text-blue-600'],
           ['Link opened', `${summary?.openRatePct ?? 0}%`, MousePointerClick, 'text-amber-600'],
           ['Claimed', `${summary?.claimRatePct ?? 0}%`, UserCheck, 'text-purple-600'],
-          ['Deleted', `${summary?.deleteRatePct ?? 0}%`, Trash2, 'text-red-600']
+          ['Deleted', `${summary?.deleteRatePct ?? 0}%`, Trash2, 'text-red-600'],
+          ['Reminded', summary?.remindedTotal ?? 0, BellRing, 'text-teal-600']
         ].map(([label, value, Icon, color]) => (
           <div key={label} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <Icon className={`h-5 w-5 ${color}`} />
