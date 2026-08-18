@@ -1,15 +1,43 @@
 const MAX_LISTED_TITLES = 3;
 
-function firstName(agentName) {
-  const cleaned = String(agentName || '').trim().replace(/\s+/g, ' ');
+// agent_name is scraped from the source listing and is almost always an
+// agency name ("360 DEGREE PROPERTIES LTD", "Abbey & Co"), not a person's.
+// Taking the first word produces greetings like "Hi 360," or "Hi 1a1m,", so
+// the whole cleaned business name is used, or none at all.
+const GENERIC_AGENT_NAMES = new Set([
+  'agent', 'agents', 'owner', 'owners', 'landlord', 'landlady',
+  'estate agent', 'property agent', 'realtor', 'admin', 'n/a', 'none'
+]);
+
+const MAX_GREETING_NAME_LENGTH = 40;
+
+function cleanAgentName(agentName) {
+  let cleaned = String(agentName || '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return '';
-  const first = cleaned.split(' ')[0];
-  if (first.length < 2 || first.length > 20) return '';
-  return first;
+
+  // Several scraped names carry a trailing contact number.
+  cleaned = cleaned.replace(/[\s,-]*\+?\d[\d\s-]{6,}$/, '').trim();
+  // Trailing separators left behind by the strip above.
+  cleaned = cleaned.replace(/[.,\-&|]+$/, '').trim();
+
+  if (cleaned.length < 3 || cleaned.length > MAX_GREETING_NAME_LENGTH) return '';
+  if (!/[a-z]/i.test(cleaned)) return '';
+  if (GENERIC_AGENT_NAMES.has(cleaned.toLowerCase())) return '';
+  // Handles/usernames read worse than no name at all.
+  if (/[_@]/.test(cleaned)) return '';
+
+  // Shouty scraped names get title-cased; mixed-case names are left alone.
+  if (cleaned === cleaned.toUpperCase()) {
+    cleaned = cleaned
+      .toLowerCase()
+      .replace(/\b[a-z]/g, (char) => char.toUpperCase());
+  }
+
+  return cleaned;
 }
 
 function greeting(agentName) {
-  const name = firstName(agentName);
+  const name = cleanAgentName(agentName);
   return name ? `Hi ${name},` : 'Hi,';
 }
 
