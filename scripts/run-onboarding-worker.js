@@ -41,6 +41,7 @@ function parseArgs(argv) {
     once: argv.includes('--once'),
     drain: argv.includes('--drain'),
     dryRun: argv.includes('--dry-run'),
+    ignoreSendWindow: argv.includes('--ignore-send-window'),
     idleDelayMs: readNumberArg('--idle-delay-ms', 15000),
     delayMinSeconds: readNumberArg('--delay-min', Number(process.env.ONBOARDING_DELAY_MIN_SECONDS || 30)),
     delayMaxSeconds: readNumberArg('--delay-max', Number(process.env.ONBOARDING_DELAY_MAX_SECONDS || 60)),
@@ -69,7 +70,10 @@ async function main() {
 
   do {
     try {
-      const result = await processNextOnboardingJob({ dryRun: args.dryRun });
+      const result = await processNextOnboardingJob({
+        dryRun: args.dryRun,
+        ignoreSendWindow: args.ignoreSendWindow
+      });
       if (result.processed) {
         emptyGraceUsed = false;
         processedCount += 1;
@@ -96,6 +100,12 @@ async function main() {
           await sleep(randomDelayMs(args.delayMinSeconds, args.delayMaxSeconds));
         }
       } else {
+        if (result.reason === 'outside_send_window') {
+          console.log(
+            `[onboarding-worker] Outside send window ${result.window} (local hour ${result.localHour}). ` +
+            'Queue is left intact for the next window.'
+          );
+        }
         if (args.once || args.drain) {
           if (
             args.drain &&

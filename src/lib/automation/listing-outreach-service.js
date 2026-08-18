@@ -470,9 +470,9 @@ async function getRateLimitState(db) {
   };
 }
 
-async function processNextOnboardingJob({ dryRun = false } = {}) {
+async function processNextOnboardingJob({ dryRun = false, ignoreSendWindow = false } = {}) {
   if (shouldUsePostgresOnboarding()) {
-    return postgresOutreachService.processNextOnboardingJob({ dryRun });
+    return postgresOutreachService.processNextOnboardingJob({ dryRun, ignoreSendWindow });
   }
 
   const db = getAutomationFirestore();

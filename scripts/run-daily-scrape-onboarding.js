@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { describeSendWindow, evaluateSendWindow } = require('../src/lib/automation/send-window.cjs');
 
 const projectRoot = path.resolve(__dirname, '..');
 const logsDir = process.env.SCRAPER_LOG_DIR || path.join(projectRoot, 'logs');
@@ -185,6 +186,17 @@ async function main() {
 
     if (skipOnboarding) {
       log('Onboarding skipped by --skip-onboarding flag.');
+      return;
+    }
+
+    // Scraping runs overnight, but messages must not. The dedicated send-window
+    // cron drains whatever this run queued once Lagos business hours open.
+    const sendWindow = evaluateSendWindow();
+    if (!dryRun && !sendWindow.open) {
+      log(
+        `Outreach queued but not sent: outside send window ${describeSendWindow(sendWindow.window)} ` +
+        `(local hour ${sendWindow.localHour}). The send-window job will drain the queue.`
+      );
       return;
     }
 

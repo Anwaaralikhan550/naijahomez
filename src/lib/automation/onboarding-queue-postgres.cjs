@@ -228,10 +228,10 @@ async function fetchListing(_db, collectionName, advertId) {
   return result.rows[0] ? rowToListing(result.rows[0]) : null;
 }
 
-async function createClaimToken({ collectionName, advertId }) {
+async function createClaimToken({ collectionName, advertId, ttlMs }) {
   const rawToken = createRawToken();
   const now = nowDate();
-  const expiresAt = new Date(now.getTime() + CLAIM_TOKEN_TTL_MS);
+  const expiresAt = new Date(now.getTime() + (Number(ttlMs) > 0 ? Number(ttlMs) : CLAIM_TOKEN_TTL_MS));
   const result = await query(
     `INSERT INTO advert_claim_tokens (
       advert_id, collection_name, token_hash, expires_at, created_at, updated_at
@@ -249,10 +249,10 @@ async function createClaimToken({ collectionName, advertId }) {
   };
 }
 
-async function createBatchClaimToken({ phone, queueItems = [], listings = [] }) {
+async function createBatchClaimToken({ phone, queueItems = [], listings = [], ttlMs }) {
   const rawToken = createRawToken();
   const now = nowDate();
-  const expiresAt = new Date(now.getTime() + CLAIM_TOKEN_TTL_MS);
+  const expiresAt = new Date(now.getTime() + (Number(ttlMs) > 0 ? Number(ttlMs) : CLAIM_TOKEN_TTL_MS));
   const listingById = new Map(listings.map((listing) => [String(listing.id), listing]));
   const advertRefs = uniqueAdvertRefs(queueItems.map((item) => {
     const listing = listingById.get(String(item.advertId)) || {};
@@ -284,6 +284,7 @@ async function createBatchClaimToken({ phone, queueItems = [], listings = [] }) 
     id: result.rows[0].id,
     rawToken,
     claimUrl: `${getAppUrl()}/claim/batch?token=${encodeURIComponent(rawToken)}`,
+    manageUrl: `${getAppUrl()}/claim/batch/manage?token=${encodeURIComponent(rawToken)}`,
     expiresAt,
     advertRefs
   };
@@ -475,12 +476,30 @@ async function validateClaimToken({ rawToken }) {
   if (data.claimed_at) return { valid: false, code: 'TOKEN_ALREADY_CLAIMED' };
   if (!expiresAt || expiresAt.getTime() <= Date.now()) return { valid: false, code: 'TOKEN_EXPIRED' };
 
+  const listing = await fetchListing(null, data.collection_name, data.advert_id).catch(() => null);
+
   return {
     valid: true,
     tokenId: data.id,
     advertId: data.advert_id,
     collectionName: data.collection_name,
-    expiresAt
+    expiresAt,
+    listing: listing
+      ? {
+          id: listing.id,
+          collectionName: data.collection_name,
+          title: listing.title || 'Property Listing',
+          description: listing.description || '',
+          location: resolveListingLocation(listing) || '',
+          price: listing.price || listing.priceString || '',
+          listingType: listing.listingType || '',
+          propertyType: listing.propertyType || listing.type || '',
+          bedrooms: listing.bedrooms ?? null,
+          bathrooms: listing.bathrooms ?? null,
+          imageUrls: Array.isArray(listing.imageUrls) ? listing.imageUrls : [],
+          slug: listing.slug || listing.id
+        }
+      : null
   };
 }
 
@@ -606,6 +625,10 @@ async function resolveBatchListings(advertRefs = [], claimedAdvertIds = []) {
       collectionName: ref.collectionName,
       title: listing?.title || ref.title || 'Property Listing',
       location: resolveListingLocation(listing || {}) || ref.location || '',
+      price: listing?.price || listing?.priceString || '',
+      propertyType: listing?.propertyType || listing?.type || '',
+      listingType: listing?.listingType || '',
+      slug: listing?.slug || listing?.id || ref.advertId,
       imageUrl: Array.isArray(listing?.imageUrls) ? listing.imageUrls[0] || '' : '',
       alreadyClaimed: claimedSet.has(String(ref.advertId)) || !isUnclaimedImportedListing(listing || {}),
       exists: Boolean(listing)

@@ -1,5 +1,5 @@
 import { getBatchClaimMetadata } from '@/lib/claims/claim-preview';
-import BatchClaimClient from './BatchClaimClient';
+import BatchManageClient from './BatchManageClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,6 +8,6 @@ export async function generateMetadata({ searchParams }) {
   return getBatchClaimMetadata(params?.token || '');
 }
 
-export default function BatchClaimPage() {
-  return <BatchClaimClient />;
+export default function BatchManagePage() {
+  return <BatchManageClient />;
 }

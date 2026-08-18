@@ -2,6 +2,7 @@ const { generateBatchListingClaimMessage, generateListingClaimMessage } = requir
 const { sendWhatsAppTextMessage } = require('../whatsapp/evolution-client');
 const { getPool, query } = require('../db/postgres-client.cjs');
 const { logEvent } = require('../db/outreach-events-repository.cjs');
+const { describeSendWindow, evaluateSendWindow } = require('./send-window.cjs');
 const {
   countSentMessagesSince,
   createBatchClaimToken,
@@ -253,13 +254,20 @@ async function runQueueItem(queueId, { dryRun = false } = {}) {
         });
 
   const title = listing.title || listing.name || 'Property Listing';
+  const agentName = queueData.agentName || listing.agentName || '';
   const message = group.items.length > 1
     ? generateBatchListingClaimMessage({
         count: group.items.length,
-        claimUrl: claimToken.claimUrl
+        adverts: claimToken.advertRefs || group.items,
+        agentName,
+        claimUrl: claimToken.claimUrl,
+        manageUrl: claimToken.manageUrl
       })
     : generateListingClaimMessage({
         title,
+        location: resolveListingLocation(listing) || queueData.location || '',
+        price: listing.price || listing.priceString || '',
+        agentName,
         claimUrl: claimToken.claimUrl,
         manageUrl: claimToken.manageUrl
       });
@@ -437,8 +445,21 @@ async function getRateLimitState() {
   };
 }
 
-async function processNextOnboardingJob({ dryRun = false } = {}) {
+async function processNextOnboardingJob({ dryRun = false, ignoreSendWindow = false } = {}) {
   await recoverStaleProcessingJobs();
+
+  if (!dryRun && !ignoreSendWindow) {
+    const sendWindow = evaluateSendWindow();
+    if (!sendWindow.open) {
+      return {
+        processed: false,
+        reason: 'outside_send_window',
+        window: describeSendWindow(sendWindow.window),
+        localHour: sendWindow.localHour,
+        waitMs: sendWindow.waitMs
+      };
+    }
+  }
 
   if (!dryRun) {
     const rateLimit = await getRateLimitState();
