@@ -2,12 +2,42 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { normalizeImageFields } from '@/lib/hubFirestore';
+import listingRepository from '@/lib/db/listing-repository.cjs';
+
+const { fetchListingBySlug, fetchSimilarListings, isAppDbEnabled } = listingRepository;
 
 // GET - Fetch a noticeboard item by slug
 export async function GET(request, { params }) {
   try {
-    const { slug } = params;
-    
+    const { slug } = await params;
+
+    // Missed by the Postgres cutover: the list endpoint reads public_listings
+    // while this one still went straight to Firestore, so every notice created
+    // after the migration 404d on its own detail page. Mirrors the marketplace
+    // slug route -- Postgres first, Firestore left as the fallback.
+    if (isAppDbEnabled()) {
+      try {
+        const postgresNotice = await fetchListingBySlug('noticeboard', slug);
+        if (postgresNotice) {
+          const similar = await fetchSimilarListings({
+            collectionName: 'noticeboard',
+            excludeId: postgresNotice.id,
+            category: postgresNotice.category || postgresNotice.noticeType || 'general',
+            limit: 3
+          });
+
+          return NextResponse.json({
+            success: true,
+            data: normalizeImageFields(postgresNotice),
+            similar: similar.map((item) => normalizeImageFields(item)),
+            source: 'postgres'
+          });
+        }
+      } catch (postgresError) {
+        console.warn('PostgreSQL noticeboard slug lookup failed, falling back to Firestore:', postgresError);
+      }
+    }
+
     const db = getAdminFirestore();
     
     // Query by slug

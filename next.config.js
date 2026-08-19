@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     reactStrictMode: true,
+    // isomorphic-dompurify pulls in jsdom, which breaks when webpack bundles it
+    // for the server: /housemate/[slug] returned a 500 with
+    // "TypeError: s is not a function at t.createWindow". Loading it from
+    // node_modules at runtime instead keeps DOMPurify's real sanitiser rather
+    // than downgrading those pages to a regex clean-up.
+    serverExternalPackages: ['isomorphic-dompurify', 'jsdom'],
     // Configure ESLint to not fail build on warnings
     eslint: {
       // Warning: This allows production builds to successfully complete even if
