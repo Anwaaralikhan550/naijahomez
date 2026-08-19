@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 // Replaced with API service calls
 import apiService from '@/services/api';
-import { ImageGallery } from '@/components/property/ImageGallery';
+import { ImageGallery, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 import {
   MapPin,
   Clock,
@@ -343,7 +343,10 @@ export default function TradespeopleDetail({ params }) {
             {/* Image Gallery */}
             {service.imageUrls && service.imageUrls.length > 0 && (
               <div className="bg-white rounded-xl shadow-lg p-6">
-                <ImageGallery images={service.imageUrls} />
+                <ImageGallery
+                  images={service.imageUrls}
+                  coverSourceWatermark={shouldForceSourceWatermark(service)}
+                />
               </div>
             )}
 

@@ -8,7 +8,7 @@ import apiService from '@/services/api';
 import { slugify } from '@/utils/slugify';
 import SponsoredAdSlot from '@/components/advertising/SponsoredAdSlot';
 import { trackJourneyStep } from '@/lib/analytics/events';
-import { SourceWatermarkCover } from '@/components/property/ImageGallery';
+import { SourceWatermarkCover, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 
 // Property Types Constant - For property search
 const PROPERTY_TYPES = [
@@ -40,14 +40,6 @@ const SERVICE_CATEGORIES = [
   { value: 'ac-repair', label: 'AC Repair' }
 ];
 
-function shouldForceWatermark(item) {
-  return Boolean(
-    item?.isScraped ||
-    item?.isScrapedData ||
-    item?.dataSource === 'scraped' ||
-    item?.sourceUrl
-  );
-}
 
 export default function SearchPage() {
   const router = useRouter();
@@ -709,7 +701,7 @@ export default function SearchPage() {
                 />
                 <SourceWatermarkCover
                   imageUrl={item.imageUrls?.[0]}
-                  force={shouldForceWatermark(item)}
+                  force={shouldForceSourceWatermark(item)}
                 />
                 {item.type && (
                   <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm">

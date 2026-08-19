@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { MapPin, Bed, Bath, Heart } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { SourceWatermarkCover } from './ImageGallery';
+import { SourceWatermarkCover, shouldForceSourceWatermark } from './ImageGallery';
 
 // Helper function to determine if a property is for sale (when listingType field is missing)
 function isForSale(property) {
@@ -40,14 +40,6 @@ function extractPriceValue(property) {
   return !isNaN(propertyPrice) ? propertyPrice : 0;
 }
 
-function shouldForceWatermark(property) {
-  return Boolean(
-    property?.isScraped ||
-    property?.isScrapedData ||
-    property?.dataSource === 'scraped' ||
-    property?.sourceUrl
-  );
-}
 
 export default function PropertyCard({ property, showDistance = false }) {
   const [isFavorited, setIsFavorited] = useState(false);
@@ -147,7 +139,7 @@ export default function PropertyCard({ property, showDistance = false }) {
             />
             <SourceWatermarkCover
               imageUrl={property.imageUrls?.[0]}
-              force={shouldForceWatermark(property)}
+              force={shouldForceSourceWatermark(property)}
             />
           </div>
           

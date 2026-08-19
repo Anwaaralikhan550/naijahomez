@@ -11,7 +11,7 @@ import FeaturedNotices from '@/components/home/FeaturedNotices';
 import FeaturedHousemates from '@/components/home/FeaturedHousemates';
 import SponsoredAdSlot from '@/components/advertising/SponsoredAdSlot';
 import { trackJourneyStep } from '@/lib/analytics/events';
-import { SourceWatermarkCover } from '@/components/property/ImageGallery';
+import { SourceWatermarkCover, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 
 // Placeholder Component for Loading Featured Items
 const FeaturedItemPlaceholder = () => (
@@ -25,14 +25,6 @@ const FeaturedItemPlaceholder = () => (
   </div>
 );
 
-function shouldForceWatermark(item) {
-  return Boolean(
-    item?.isScraped ||
-    item?.isScrapedData ||
-    item?.dataSource === 'scraped' ||
-    item?.sourceUrl
-  );
-}
 
 export default function HomePage() {
   // Use caching hooks for all sections
@@ -453,7 +445,7 @@ export default function HomePage() {
                       />
                       <SourceWatermarkCover
                         imageUrl={property.imageUrls[0]}
-                        force={shouldForceWatermark(property)}
+                        force={shouldForceSourceWatermark(property)}
                       />
                     </div>
                     

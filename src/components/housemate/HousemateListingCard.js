@@ -3,6 +3,7 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { MapPin, Users, Calendar, Heart, DollarSign, Home, CheckSquare, Wifi, Bath, Star } from 'lucide-react';
+import { SourceWatermarkCover, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 
 const HousemateListingCard = ({ listing, onSaveToggle, isSaved = false }) => {
   const parseDateValue = (value) => {
@@ -133,6 +134,10 @@ const HousemateListingCard = ({ listing, onSaveToggle, isSaved = false }) => {
               className="object-cover"
               loading="lazy"
               unoptimized
+            />
+            <SourceWatermarkCover
+              imageUrl={listing.imageUrls?.[0]}
+              force={shouldForceSourceWatermark(listing)}
             />
           </div>
         </Link>

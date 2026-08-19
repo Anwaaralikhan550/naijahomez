@@ -41,6 +41,19 @@ const SOURCE_WATERMARK_STYLE = {
   }
 };
 
+// A listing we imported from another site needs the cover regardless of which
+// host ends up serving the file, because migrated images are re-served from our
+// own storage and no longer match SOURCE_WATERMARK_HOSTS. Every surface that
+// renders imported media should gate on this rather than on the image host.
+export function shouldForceSourceWatermark(item) {
+  return Boolean(
+    item?.isScraped ||
+    item?.isScrapedData ||
+    item?.dataSource === 'scraped' ||
+    item?.sourceUrl
+  );
+}
+
 export function shouldCoverSourceWatermark(value, force = false) {
   if (force) return true;
 

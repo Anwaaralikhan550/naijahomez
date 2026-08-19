@@ -11,6 +11,7 @@ import DistanceBadge from '@/components/shared/DistanceBadge';
 import { useSearchRecommendations } from '@/hooks/useSearchRecommendations';
 import SearchDropdown from '@/components/shared/SearchDropdown';
 import { getCleanListingImageUrl } from '@/utils/imageUtils';
+import { SourceWatermarkCover, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 
 function TradespeopleListings({ data: proximityFilteredServices = [], isLoading: isProximityLoading, isProximityFiltered }) {
   // Get geolocation context to check if 'Near Me' is enabled
@@ -714,6 +715,10 @@ function TradespeopleListings({ data: proximityFilteredServices = [], isLoading:
                               className="object-cover"
                               loading="lazy"
                               unoptimized
+                            />
+                            <SourceWatermarkCover
+                              imageUrl={getCleanListingImageUrl(service.imageUrls)}
+                              force={shouldForceSourceWatermark(service)}
                             />
                           </div>
                           <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm">

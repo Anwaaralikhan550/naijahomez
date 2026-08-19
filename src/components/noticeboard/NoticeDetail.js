@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import apiService from '@/services/api';
-import { ImageGallery } from '@/components/property/ImageGallery';
+import { ImageGallery, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 import { MapPin, Tag, Clock, AlertTriangle, Heart, Share2, Calendar, User, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -266,7 +266,10 @@ export default function NoticeDetail({ params }) {
             {/* Image Gallery */}
             {notice.imageUrls && notice.imageUrls.length > 0 && (
               <div className="bg-white rounded-xl shadow-lg p-6">
-                <ImageGallery images={notice.imageUrls} />
+                <ImageGallery
+                  images={notice.imageUrls}
+                  coverSourceWatermark={shouldForceSourceWatermark(notice)}
+                />
               </div>
             )}
 

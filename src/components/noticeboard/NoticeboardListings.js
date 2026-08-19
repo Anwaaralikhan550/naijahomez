@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { MapPin, Clock, Search as SearchIcon, Filter, X, Loader2, Tag, Star } from 'lucide-react';
+import { MapPin, Clock, Search as SearchIcon, Filter, X, Loader2, Tag, Star, Megaphone } from 'lucide-react';
 import apiService from '@/services/api';
 import { slugify } from '@/utils/slugify';
 import { withProximityFilter } from '@/utils/withProximityFilter';
@@ -10,6 +10,7 @@ import { useGeolocationContext } from '@/context/GeolocationContext';
 import DistanceBadge from '@/components/shared/DistanceBadge';
 import { useSearchRecommendations } from '@/hooks/useSearchRecommendations';
 import SearchDropdown from '@/components/shared/SearchDropdown';
+import { SourceWatermarkCover, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 
 function NoticeboardListings(props) {
   // Get proximity data and state from props and context
@@ -581,15 +582,30 @@ function NoticeboardListings(props) {
                       <div className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow h-full min-h-[31rem] flex flex-col">
                         <div className="relative">
                           <div className="relative w-full aspect-video">
-                            <Image
-                              src={notice.imageUrls[0]}
-                              alt={notice.title}
-                              fill
-                              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                              className="object-cover"
-                              loading="lazy"
-                              unoptimized
-                            />
+                            {/* imageUrls is optional on a notice, so index straight
+                                into it only after checking -- an image-less notice
+                                used to take the whole listing grid down. */}
+                            {notice.imageUrls?.[0] ? (
+                              <>
+                                <Image
+                                  src={notice.imageUrls[0]}
+                                  alt={notice.title}
+                                  fill
+                                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                  className="object-cover"
+                                  loading="lazy"
+                                  unoptimized
+                                />
+                                <SourceWatermarkCover
+                                  imageUrl={notice.imageUrls[0]}
+                                  force={shouldForceSourceWatermark(notice)}
+                                />
+                              </>
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-300">
+                                <Megaphone size={40} />
+                              </div>
+                            )}
                           </div>
                           {notice.noticeType && (
                             <span className="absolute top-2 right-2 bg-blue-500 text-white px-2 py-1 rounded-full text-sm">

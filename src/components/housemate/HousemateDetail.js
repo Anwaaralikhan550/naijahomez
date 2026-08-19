@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 // Replaced with API service calls
 import apiService from '@/services/api';
-import { ImageGallery } from '@/components/property/ImageGallery';
+import { ImageGallery, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 import ContactAgent from '@/components/shared/ContactAgent';
 import ListingReportModal from '@/components/reporting/ListingReportModal';
 import toast from 'react-hot-toast';
@@ -392,7 +392,10 @@ export default function HousemateDetail({ params }) {
           {/* First Column - Listing Details */}
           <div className="md:col-span-2 space-y-8">
             <div className="w-full">
-              <ImageGallery images={listing.imageUrls} />
+              <ImageGallery
+                images={listing.imageUrls}
+                coverSourceWatermark={shouldForceSourceWatermark(listing)}
+              />
             </div>
 
             {/* Key Details */}

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { MapPin, Clock, Package, Truck, CreditCard, Star } from 'lucide-react';
 import DistanceBadge from '@/components/shared/DistanceBadge';
+import { SourceWatermarkCover, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 
 // Component for displaying a marketplace item card with the new fields
 export default function MarketplaceListingCard({ item, showDistance = false }) {
@@ -84,6 +85,10 @@ export default function MarketplaceListingCard({ item, showDistance = false }) {
               className="object-cover rounded-t-xl"
               loading="lazy"
               unoptimized
+            />
+            <SourceWatermarkCover
+              imageUrl={getPrimaryImageUrl(item)}
+              force={shouldForceSourceWatermark(item)}
             />
           </div>
           {isPromotedActive(item) && (

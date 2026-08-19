@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import apiService from '@/services/api';
-import { ImageGallery } from '@/components/property/ImageGallery';
+import { ImageGallery, shouldForceSourceWatermark } from '@/components/property/ImageGallery';
 import { MapPin, Tag, Clock, AlertTriangle, Heart, Share2, Package, Truck, CreditCard, ShieldCheck, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -58,6 +58,29 @@ export default function MarketplaceDetail({ params }) {
   const [showReportModal, setShowReportModal] = useState(false);
   const trackedImpressionsRef = React.useRef(new Set());
 
+  // Declared before the effect below, which lists it as a dependency. A
+  // dependency array is evaluated during render, so referencing this const
+  // from an effect placed above it throws "Cannot access 'loadSimilarItems'
+  // before initialization" in a production build.
+  const loadSimilarItems = useCallback(async (currentItem) => {
+    if (!currentItem?.subCategory) return;
+
+    try {
+      const response = await fetch(`/api/marketplace?subCategory=${encodeURIComponent(currentItem.subCategory)}&limit=4`);
+
+      if (response.ok) {
+        const data = await response.json();
+        const items = data.items || [];
+
+        // Filter out the current item and limit to 3 items
+        setSimilarItems(items.filter(item => item.id !== currentItem.id).slice(0, 3));
+      }
+    } catch (error) {
+      console.error('Error loading similar items:', error);
+      // Non-critical - just show no similar items
+    }
+  }, []);
+
   useEffect(() => {
     const loadItemData = async () => {
       try {
@@ -109,25 +132,6 @@ export default function MarketplaceDetail({ params }) {
     trackedImpressionsRef.current.add(listingId);
     trackImpression(listingId, 'marketplace');
   }, [item]);
-
-  const loadSimilarItems = useCallback(async (currentItem) => {
-    if (!currentItem?.subCategory) return;
-
-    try {
-      const response = await fetch(`/api/marketplace?subCategory=${encodeURIComponent(currentItem.subCategory)}&limit=4`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        const items = data.items || [];
-        
-        // Filter out the current item and limit to 3 items
-        setSimilarItems(items.filter(item => item.id !== currentItem.id).slice(0, 3));
-      }
-    } catch (error) {
-      console.error('Error loading similar items:', error);
-      // Non-critical - just show no similar items
-    }
-  }, []);
 
   const handleShare = async () => {
     try {
@@ -330,7 +334,10 @@ export default function MarketplaceDetail({ params }) {
           <div className="md:col-span-2 space-y-8">
             {/* Image Gallery */}
             <div className="bg-white rounded-xl shadow-lg p-6">
-              <ImageGallery images={item.imageUrls} />
+              <ImageGallery
+                images={item.imageUrls}
+                coverSourceWatermark={shouldForceSourceWatermark(item)}
+              />
             </div>
 
             {/* Payment and Collection Options */}

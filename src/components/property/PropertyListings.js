@@ -12,7 +12,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import ViewToggle from './ViewToggle';
 import PropertyMap from './PropertyMap';
-import { SourceWatermarkCover } from './ImageGallery';
+import { SourceWatermarkCover, shouldForceSourceWatermark } from './ImageGallery';
 
 // Define property types
 const propertyTypes = [
@@ -77,8 +77,6 @@ const PropertyListings = React.memo(function PropertyListings() {
     return expiry.getTime() > Date.now();
   };
 
-  const shouldForceWatermark = (item) =>
-    Boolean(item?.isScraped || item?.isScrapedData || item?.dataSource === 'scraped' || item?.sourceUrl);
   
 
   // Load properties when filters change
@@ -505,7 +503,7 @@ const PropertyListings = React.memo(function PropertyListings() {
                           />
                           <SourceWatermarkCover
                             imageUrl={property.imageUrls[0]}
-                            force={shouldForceWatermark(property)}
+                            force={shouldForceSourceWatermark(property)}
                           />
                           
                           {/* Display listing type tag */}
