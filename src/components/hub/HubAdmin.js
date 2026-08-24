@@ -21,7 +21,8 @@ import {
   LogOut,
   BadgeCheck,
   FileText,
-  Megaphone
+  Megaphone,
+  Smartphone
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { authenticatedFetch } from '@/services/api';
@@ -38,6 +39,7 @@ import ContentAutomationDashboard from './admin/ContentAutomationDashboard';
 import AdvertisingManagement from './admin/AdvertisingManagement';
 import SupportManagement from './admin/SupportManagement';
 import AgentOutreachMonitor from './admin/AgentOutreachMonitor';
+import WhatsAppConnection from './admin/WhatsAppConnection';
 
 const DEFAULT_STATS = {
   totalMembers: 0,
@@ -63,6 +65,7 @@ const ADMIN_TABS = [
   { id: 'content-automation', label: 'Content Automation', icon: FileText },
   { id: 'advertising', label: 'Advertising', icon: Megaphone },
   { id: 'agent-outreach', label: 'Agent Outreach', icon: Send },
+  { id: 'whatsapp', label: 'WhatsApp', icon: Smartphone },
   { id: 'support', label: 'Support', icon: MessageCircle },
   { id: 'market-insights', label: 'Market Insights', icon: Eye },
   { id: 'reports', label: 'Reports', icon: AlertTriangle },
@@ -561,6 +564,7 @@ const HubAdmin = ({ communityId: propCommunityId }) => {
       case 'content-automation': return <ContentAutomationDashboard />;
       case 'advertising': return <AdvertisingManagement />;
       case 'agent-outreach': return <AgentOutreachMonitor />;
+      case 'whatsapp': return <WhatsAppConnection />;
       case 'support': return <SupportManagement />;
       case 'market-insights': return renderMarketInsights();
       case 'reports': return renderReports();
