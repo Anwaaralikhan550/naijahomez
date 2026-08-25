@@ -6,7 +6,7 @@
 // system; the shim doc is a denormalized mirror kept for backward
 // compatibility during the migration.
 import { getAdminFirestore } from '@/lib/firebase-admin';
-import { signAccessToken, generateRefreshTokenValue, hashRefreshToken, refreshTokenExpiry } from '@/lib/auth/tokens';
+import { signAccessToken, generateRefreshTokenValue, hashRefreshToken, refreshTokenExpiry, accessTokenExpiry } from '@/lib/auth/tokens';
 import authRepository from '@/lib/db/auth-repository.cjs';
 
 export async function syncLegacyUserDoc(profile) {
@@ -45,13 +45,20 @@ export async function issueSession(profile, { userAgent = null, ipAddress = null
 
   const refreshTokenValue = generateRefreshTokenValue();
   const refreshTokenHash = hashRefreshToken(refreshTokenValue);
-  const expiresAt = refreshTokenExpiry();
+  const refreshExpiresAt = refreshTokenExpiry();
 
-  await authRepository.createRefreshToken(profile.userId, refreshTokenHash, expiresAt, { userAgent, ipAddress });
+  await authRepository.createRefreshToken(profile.userId, refreshTokenHash, refreshExpiresAt, { userAgent, ipAddress });
   await syncLegacyUserDoc(profile).catch(() => {
     // Best-effort mirror sync -- profile display may lag by one request if
     // this fails, but the auth session itself is already valid.
   });
 
-  return { accessToken, refreshToken: refreshTokenValue, expiresAt };
+  // expiresAt is the access token's, since that is what the client schedules
+  // its refresh against. The refresh token's own expiry is returned separately.
+  return {
+    accessToken,
+    refreshToken: refreshTokenValue,
+    expiresAt: accessTokenExpiry(),
+    refreshExpiresAt
+  };
 }

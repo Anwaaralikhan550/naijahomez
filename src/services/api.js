@@ -467,15 +467,32 @@ export async function getAuthHeaders() {
  * Automatically includes the Firebase ID token in Authorization header.
  */
 export async function authenticatedFetch(url, options = {}) {
-  const authHeaders = await getAuthHeaders();
-  return fetch(url, {
+  const send = async (token) => fetch(url, {
     credentials: 'include',
     ...options,
     headers: {
-      ...authHeaders,
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers
     }
   });
+
+  const token = await getValidAccessToken().catch((error) => {
+    logger.error('Failed to get auth token', error);
+    return null;
+  });
+  const response = await send(token);
+
+  // Safety net for a token that expired between the check above and the request
+  // landing, or one the client could not read an expiry from: refresh once and
+  // replay rather than surfacing a spurious signed-out state. Only for requests
+  // that already carried a token -- a genuinely anonymous 401 is not retried.
+  if (response.status !== 401 || !token) return response;
+
+  const refreshed = await getValidAccessToken({ forceRefresh: true }).catch(() => null);
+  if (!refreshed || refreshed === token) return response;
+
+  return send(refreshed);
 }
 
 export default apiService;

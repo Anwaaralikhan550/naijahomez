@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import authRepository from '@/lib/db/auth-repository.cjs';
-import { signAccessToken, generateRefreshTokenValue, hashRefreshToken, refreshTokenExpiry } from '@/lib/auth/tokens';
+import { signAccessToken, generateRefreshTokenValue, hashRefreshToken, refreshTokenExpiry, accessTokenExpiry } from '@/lib/auth/tokens';
 import logger from '@/lib/logger';
 
 const errorResponse = (message, code, status = 500) =>
@@ -47,7 +47,10 @@ export async function POST(request) {
       success: true,
       accessToken,
       refreshToken: newRefreshTokenValue,
-      expiresAt: newExpiresAt
+      // Access token expiry -- the client refreshes against this. newExpiresAt
+      // is the rotated refresh token's 30-day expiry and is returned alongside.
+      expiresAt: accessTokenExpiry(),
+      refreshExpiresAt: newExpiresAt
     });
   } catch (error) {
     logger.error('Token refresh failed', error);

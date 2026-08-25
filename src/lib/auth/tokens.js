@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import { SignJWT, jwtVerify } from 'jose';
 
-const ACCESS_TOKEN_TTL = '1h';
+const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+const ACCESS_TOKEN_TTL = `${ACCESS_TOKEN_TTL_MS / 1000}s`;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 let cachedSecretKey = null;
@@ -61,4 +62,12 @@ export function refreshTokenExpiry() {
   return new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
 }
 
-export { REFRESH_TOKEN_TTL_MS };
+// The client uses this to decide when to refresh. It must be the ACCESS token's
+// expiry: handing it the refresh token's 30-day expiry made the client believe
+// the access token was good for a month, so it never refreshed and every call
+// started 401ing an hour after login.
+export function accessTokenExpiry() {
+  return new Date(Date.now() + ACCESS_TOKEN_TTL_MS);
+}
+
+export { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_TTL_MS };
