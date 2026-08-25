@@ -2,7 +2,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
 const { spawn } = require('child_process');
+
+// Cron gives this script a bare environment. Without loading .env.local the
+// send-window check below fell back to the built-in 09:00-11:00 default and
+// logged a window the worker was not actually using, since the worker does
+// read .env.local. Load it before anything reads process.env.
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '..', '.env.local'), override: true });
+
 const { describeSendWindow, evaluateSendWindow } = require('../src/lib/automation/send-window.cjs');
 
 const projectRoot = path.resolve(__dirname, '..');
