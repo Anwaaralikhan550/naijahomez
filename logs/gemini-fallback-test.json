@@ -1,0 +1,151 @@
+{
+  "success": true,
+  "generatedAt": "2026-05-22T10:18:20.575Z",
+  "source": "nigeria-property-centre",
+  "category": "property",
+  "count": 2,
+  "data": [
+    {
+      "title": "Luxury 3 Bedroom Fully Furnished Flat With Excellent Facility",
+      "description": "This listing is for a 3-bedroom fully furnished flat available for rent in Banana Island, Ikoyi, Lagos. The property is an apartment with three bedrooms. The annual rent is ₦45,000,000. This flat includes facility access. The available details describe a fully furnished property. Readers are advised to confirm availability, fees, and viewing details with the agent.",
+      "price": "₦45,000,000 per annum",
+      "priceNumeric": 45000000,
+      "imageUrls": [
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b7921972038-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b7921ab35be-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b7921bd3c59-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b7921ce2fea-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b7921e06919-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b7921f1335c-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b7921fed400-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b79220dca00-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b79221b331f-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b79222b7152-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b79223d0c8f-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg",
+        "https://images.nigeriapropertycentre.com/properties/images/3388573/069b79224b45b0-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-for-rent-banana-island-ikoyi-lagos.jpeg"
+      ],
+      "location": "Banana Island, Ikoyi, Lagos",
+      "source": "NPC",
+      "category": "property",
+      "sourceUrl": "https://nigeriapropertycentre.com/for-rent/flats-apartments/lagos/ikoyi/banana-island/3388573-luxury-3-bedroom-fully-furnished-flat-with-excellent-facility",
+      "postedAt": "2026-05-22T10:18:14.877Z",
+      "postedAtConfidence": "fallback_now",
+      "createdAt": "2026-05-22T10:18:12.226Z",
+      "updatedAt": "2026-05-22T10:18:12.226Z",
+      "status": "active",
+      "isScraped": true,
+      "isScrapedData": true,
+      "dataSource": "scraped",
+      "titleLower": "luxury 3 bedroom fully furnished flat with excellent facility",
+      "locationLower": "banana island, ikoyi, lagos",
+      "agentName": "Belcanto Residence 8148793106",
+      "phoneNumbers": [
+        "+2347066834672"
+      ],
+      "phoneNumber": "+2347066834672",
+      "whatsappNumber": "+2347066834672",
+      "contactPhone": "+2347066834672",
+      "contact": {
+        "name": "Belcanto Residence 8148793106",
+        "phone": "+2347066834672"
+      },
+      "sourceMetadata": {
+        "sourceName": "nigeria-property-centre",
+        "targetUrl": "https://nigeriapropertycentre.com/for-rent",
+        "scrapedAt": "2026-05-22T10:18:12.226Z",
+        "detailFetched": true,
+        "originalDescriptionPubliclyHidden": true,
+        "descriptionPolicy": "facts_only_original_summary"
+      },
+      "originalCategory": "property",
+      "bedrooms": 3,
+      "type": "apartment",
+      "propertyType": "apartment",
+      "listingType": "rent",
+      "address": {
+        "street": "Banana Island",
+        "town": "Ikoyi",
+        "state": "Lagos"
+      },
+      "generatedDescription": "This listing is for a 3-bedroom fully furnished flat available for rent in Banana Island, Ikoyi, Lagos. The property is an apartment with three bedrooms. The annual rent is ₦45,000,000. This flat includes facility access. The available details describe a fully furnished property. Readers are advised to confirm availability, fees, and viewing details with the agent.",
+      "descriptionGeneratedBy": "gemini",
+      "descriptionGenerationMode": "facts_only",
+      "descriptionGeneratedAt": "2026-05-22T10:18:19.050Z",
+      "descriptionGenerationError": null,
+      "id": "scraped_d18930273d6e4c640563",
+      "slug": "luxury-3-bedroom-fully-furnished-flat-with-excellent-facility-d1893027",
+      "isFallback": true
+    },
+    {
+      "title": "2 Units Of Upscale 5 Bedroom Semi-detached Duplex With Pool,gym",
+      "description": "This listing is for the rent of two units of 5-bedroom semi-detached duplexes in Parkview, Ikoyi, Lagos. Each unit is available for ₦60,000,000 per annum. The property type is a house. Each duplex includes a private swimming pool and a gym. There are 5 bedrooms in each unit. Further details regarding the number of bathrooms and toilets are not provided. This property offers a residential opportunity in the Ikoyi area. Kindly confirm availability, fees, and viewing details with the agent.",
+      "price": "₦60,000,000 per annum",
+      "priceNumeric": 60000000,
+      "imageUrls": [
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f31c4162a2-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2ef7850e7-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2f0244a67-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2f0ec33e1-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2f186976e-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2f23079db-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2f2c8913a-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2f33805f2-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2f3bcb8fa-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f2f61b47cb-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f30f47df6b-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg",
+        "https://images.nigeriapropertycentre.com/properties/images/3491278/06a0f30fd92534-upscale-5-bedroom-semi-detached-duplex-with-bq-semi-detached-duplexes-for-rent-parkview-ikoyi-lagos.jpg"
+      ],
+      "location": "Parkview, Ikoyi, Lagos",
+      "source": "NPC",
+      "category": "property",
+      "sourceUrl": "https://nigeriapropertycentre.com/for-rent/houses/semi-detached-duplexes/lagos/ikoyi/parkview/3491278-2-units-of-upscale-5-bedroom-semi-detached-duplex-with-poolgym",
+      "postedAt": "2026-05-21T10:18:14.900Z",
+      "postedAtConfidence": "explicit",
+      "createdAt": "2026-05-22T10:18:12.226Z",
+      "updatedAt": "2026-05-22T10:18:12.226Z",
+      "status": "active",
+      "isScraped": true,
+      "isScrapedData": true,
+      "dataSource": "scraped",
+      "titleLower": "2 units of upscale 5 bedroom semi-detached duplex with pool,gym",
+      "locationLower": "parkview, ikoyi, lagos",
+      "agentName": "Verified Properties By The Marketbooy Of Lagos",
+      "phoneNumbers": [
+        "+2348075000582"
+      ],
+      "phoneNumber": "+2348075000582",
+      "whatsappNumber": "+2348075000582",
+      "contactPhone": "+2348075000582",
+      "contact": {
+        "name": "Verified Properties By The Marketbooy Of Lagos",
+        "phone": "+2348075000582"
+      },
+      "sourceMetadata": {
+        "sourceName": "nigeria-property-centre",
+        "targetUrl": "https://nigeriapropertycentre.com/for-rent",
+        "scrapedAt": "2026-05-22T10:18:12.226Z",
+        "detailFetched": true,
+        "originalDescriptionPubliclyHidden": true,
+        "descriptionPolicy": "facts_only_original_summary"
+      },
+      "originalCategory": "property",
+      "bedrooms": 5,
+      "type": "house",
+      "propertyType": "house",
+      "listingType": "rent",
+      "address": {
+        "street": "Parkview",
+        "town": "Ikoyi",
+        "state": "Lagos"
+      },
+      "generatedDescription": "This listing is for the rent of two units of 5-bedroom semi-detached duplexes in Parkview, Ikoyi, Lagos. Each unit is available for ₦60,000,000 per annum. The property type is a house. Each duplex includes a private swimming pool and a gym. There are 5 bedrooms in each unit. Further details regarding the number of bathrooms and toilets are not provided. This property offers a residential opportunity in the Ikoyi area. Kindly confirm availability, fees, and viewing details with the agent.",
+      "descriptionGeneratedBy": "gemini",
+      "descriptionGenerationMode": "facts_only",
+      "descriptionGeneratedAt": "2026-05-22T10:18:20.573Z",
+      "descriptionGenerationError": null,
+      "id": "scraped_81df51ca6558cd79e651",
+      "slug": "2-units-of-upscale-5-bedroom-semi-detached-duplex-with-poolgym-81df51ca",
+      "isFallback": true
+    }
+  ]
+}
